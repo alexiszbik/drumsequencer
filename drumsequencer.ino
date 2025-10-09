@@ -11,6 +11,7 @@
 #define SW_SELECT 6
 
 #define POT_TEMPO A7
+#define POT_GROOVE A6
 
 const byte stepCount = 16;
 const byte maxChanCount = stepCount;
@@ -25,6 +26,22 @@ bool selectButtonIsDown = false;
 byte selectedChannel = 0;
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial, MIDI);
+
+const byte ppqn = 96;
+const byte stepLen = ppqn/4;
+const byte halfStepLen = stepLen/2;
+
+float groove = 0.f;
+
+void checkPotentiometers() {
+    int potTempo = analogRead(POT_TEMPO);
+    int tempo = map(potTempo, 0, 1023, 40, 230);
+
+    uClock.setTempo(tempo);
+
+    float potGroove = (float)analogRead(POT_GROOVE);
+    groove = potGroove/1023.f;
+}
 
 uint16_t boolArrayToUint16(bool* bits) {
     uint16_t value = 0;
@@ -43,9 +60,11 @@ void onOutputPPQNCallback(uint32_t tick) {
     bool binState[stepCount];
     memset(binState, 0, stepCount*sizeof(bool));
 
+    //bool isOddStep = tick > 
+
     if (!selectButtonIsDown) {
         memcpy(binState, seq[selectedChannel], stepCount*sizeof(bool)); //copy state of sequencer
-        if (tick % 6 < 3) {
+        if (tick % stepLen < halfStepLen) {
             binState[seqPos] = !binState[seqPos];
         }
     }
@@ -56,14 +75,14 @@ void onOutputPPQNCallback(uint32_t tick) {
 
     for (byte c = 0; c < maxChanCount; c++) {
         if (seq[c][seqPos]) {
-            if (tick % 6 == 0) {
+            if (tick % stepLen == 0) {
                 MIDI.sendNoteOn(36 + c, 127, 1);
             }
-            if (tick % 6 == 3) {
+            if (tick % stepLen == halfStepLen) {
                 MIDI.sendNoteOff(36 + c, 127, 1);
             }
             if (selectButtonIsDown) { //select is down => we blink buttons that correspond to channel playing
-                binState[c] = (tick % 6) > 3 ? binState[c] : !binState[c];
+                binState[c] = (tick % stepLen) > halfStepLen ? binState[c] : !binState[c];
             }
         }
     }
@@ -78,8 +97,9 @@ void onOutputPPQNCallback(uint32_t tick) {
 
     digitalWrite(SR_LATCH_PIN, HIGH);
 
-    if (tick % 6 == 5) {
+    if (tick % stepLen == (stepLen-1)) {
         seqPos++;
+        checkPotentiometers();
     }
 
     seqPos = seqPos % 16;
@@ -97,7 +117,7 @@ void setup() {
 
     pinMode(SW_SELECT, INPUT_PULLUP);
 
-    uClock.setOutputPPQN(uClock.PPQN_24);
+    uClock.setOutputPPQN(uClock.PPQN_96);
     uClock.setOnOutputPPQN(onOutputPPQNCallback);
 
     MIDI.begin(MIDI_CHANNEL_OMNI);
@@ -124,11 +144,6 @@ void loop() {
             }
         }
     }
-
-    int potTempo = analogRead(POT_TEMPO);
-    int tempo = map(potTempo, 0, 1023, 40, 230);
-
-    uClock.setTempo(tempo);
 
     delay(2);
 }
