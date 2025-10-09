@@ -12,11 +12,12 @@
 
 #define POT_TEMPO A7
 #define POT_GROOVE A6
+#define POT_VELOCITY A5
 
 const byte stepCount = 16;
 const byte maxChanCount = stepCount;
 
-bool seq[maxChanCount][stepCount];
+byte sequence[maxChanCount][stepCount];
 byte seqPos = 0;
 
 Switch* switches[stepCount];
@@ -25,13 +26,14 @@ bool selectButtonIsDown = false;
 
 byte selectedChannel = 0;
 
-MIDI_CREATE_INSTANCE(HardwareSerial, Serial, MIDI);
-
 const byte ppqn = 96;
 const byte stepLen = ppqn/4;
 const byte halfStepLen = stepLen/2;
 
 float groove = 0.f;
+byte velocity = 0;
+
+MIDI_CREATE_INSTANCE(HardwareSerial, Serial, MIDI);
 
 void checkPotentiometers() {
     int potTempo = analogRead(POT_TEMPO);
@@ -41,6 +43,9 @@ void checkPotentiometers() {
 
     float potGroove = (float)analogRead(POT_GROOVE);
     groove = potGroove/1023.f;
+
+    int potVelocity = analogRead(POT_VELOCITY);
+    velocity = map(potVelocity, 0, 1023, 1, 127);
 }
 
 uint16_t boolArrayToUint16(bool* bits) {
@@ -63,7 +68,10 @@ void onOutputPPQNCallback(uint32_t tick) {
     bool isOddStep = (tick % (stepLen*2) >= stepLen);
 
     if (!selectButtonIsDown) {
-        memcpy(binState, seq[selectedChannel], stepCount*sizeof(bool)); //copy state of sequencer
+        //memcpy(binState, sequence[selectedChannel], stepCount*sizeof(bool)); //copy state of sequencer
+        for (byte i = 0; i < stepCount; i++) {
+            binState[i] = sequence[selectedChannel][i] > 0;
+        }
         if (tick % stepLen < halfStepLen) {
             binState[seqPos] = !binState[seqPos];
         }
@@ -80,9 +88,10 @@ void onOutputPPQNCallback(uint32_t tick) {
     }
 
     for (byte c = 0; c < maxChanCount; c++) {
-        if (seq[c][seqPos]) {
+        byte noteValue = sequence[c][seqPos];
+        if (noteValue > 0) {
             if (tick % stepLen == grooveOffset) {
-                MIDI.sendNoteOn(36 + c, 127, 1);
+                MIDI.sendNoteOn(36 + c, noteValue, 1);
             }
             if (tick % stepLen == (halfStepLen + grooveOffset)) {
                 MIDI.sendNoteOff(36 + c, 127, 1);
@@ -108,7 +117,7 @@ void onOutputPPQNCallback(uint32_t tick) {
         checkPotentiometers();
     }
 
-    seqPos = seqPos % 16;
+    seqPos = seqPos % stepCount;
 }
 
 void setup() {
@@ -128,6 +137,8 @@ void setup() {
 
     MIDI.begin(MIDI_CHANNEL_OMNI);
 
+    checkPotentiometers();
+
     uClock.init();
     uClock.setTempo(120);
     uClock.start();
@@ -144,7 +155,12 @@ void loop() {
                 if (selectButtonIsDown) {
                     selectedChannel = i;
                 } else {
-                    seq[selectedChannel][i] = !seq[selectedChannel][i];
+                    byte stepValue = sequence[selectedChannel][i];
+                    if (stepValue > 0) {
+                        sequence[selectedChannel][i] = 0;
+                    } else {
+                        sequence[selectedChannel][i] = velocity;
+                    }
                 }
                 
             }
