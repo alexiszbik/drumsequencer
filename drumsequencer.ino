@@ -9,6 +9,7 @@
 #define SR_DATA_PIN 11
 
 #define SW_SELECT 6
+#define SW_SHIFT 7
 
 #define POT_TEMPO A7
 #define POT_GROOVE A6
@@ -22,16 +23,21 @@ byte seqPos = 0;
 
 Switch* switches[stepCount];
 
-bool selectButtonIsDown = false;
-
-byte selectedChannel = 0;
-
 const byte ppqn = 96;
 const byte stepLen = ppqn/4;
 const byte halfStepLen = stepLen/2;
 
 float groove = 0.f;
 byte velocity = 0;
+byte selectedChannel = 0;
+
+enum Mode {
+    sequencer,
+    selectChannel,
+    muteChannel
+};
+
+Mode currentMode = sequencer;
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial, MIDI);
 
@@ -67,8 +73,7 @@ void onOutputPPQNCallback(uint32_t tick) {
 
     bool isOddStep = (tick % (stepLen*2) >= stepLen);
 
-    if (!selectButtonIsDown) {
-        //memcpy(binState, sequence[selectedChannel], stepCount*sizeof(bool)); //copy state of sequencer
+    if (currentMode == sequencer) {
         for (byte i = 0; i < stepCount; i++) {
             binState[i] = sequence[selectedChannel][i] > 0;
         }
@@ -77,7 +82,7 @@ void onOutputPPQNCallback(uint32_t tick) {
         }
     }
 
-    if (selectButtonIsDown) {
+    if (currentMode == selectChannel) {
         binState[selectedChannel] = true;
     }
 
@@ -96,7 +101,7 @@ void onOutputPPQNCallback(uint32_t tick) {
             if (tick % stepLen == (halfStepLen + grooveOffset)) {
                 MIDI.sendNoteOff(36 + c, 127, 1);
             }
-            if (selectButtonIsDown) { //select is down => we blink buttons that correspond to channel playing
+            if (currentMode == selectChannel) { //select is down => we blink buttons that correspond to channel playing
                 binState[c] = (tick % stepLen) > halfStepLen ? binState[c] : !binState[c];
             }
         }
@@ -131,6 +136,7 @@ void setup() {
     pinMode(SR_DATA_PIN, OUTPUT);
 
     pinMode(SW_SELECT, INPUT_PULLUP);
+    pinMode(SW_SHIFT, INPUT_PULLUP);
 
     uClock.setOutputPPQN(uClock.PPQN_96);
     uClock.setOnOutputPPQN(onOutputPPQNCallback);
@@ -146,13 +152,21 @@ void setup() {
 }
 
 void loop() {
-    selectButtonIsDown = digitalRead(SW_SELECT) == HIGH;
+
+    bool selectButtonIsDown = digitalRead(SW_SELECT) == HIGH;
+    bool shiftButtonIsDown = digitalRead(SW_SELECT) == HIGH;
+
+    if (selectButtonIsDown) {
+        currentMode = selectChannel;
+    } else {
+        currentMode = sequencer;
+    }
 
     for (byte i = 0; i < stepCount; i++) {
         
         if (switches[i]->debounce()) {
             if (switches[i]->getState() == true) {
-                if (selectButtonIsDown) {
+                if (currentMode == selectChannel) {
                     selectedChannel = i;
                 } else {
                     byte stepValue = sequence[selectedChannel][i];
