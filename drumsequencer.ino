@@ -10,17 +10,19 @@
 
 #define SW_SELECT 6
 
+#define POT_TEMPO A7
+
 const byte stepCount = 16;
-const byte maxChanCount = 16;
+const byte maxChanCount = stepCount;
 
 bool seq[maxChanCount][stepCount];
 byte seqPos = 0;
 
 Switch* switches[stepCount];
 
-bool select = false;
+bool selectButtonIsDown = false;
 
-byte chan = 0;
+byte selectedChannel = 0;
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial, MIDI);
 
@@ -40,32 +42,30 @@ void onOutputPPQNCallback(uint32_t tick) {
 
     bool binState[stepCount];
     memset(binState, 0, stepCount*sizeof(bool));
-    if (!select) {
-        memcpy(binState, seq[chan], stepCount*sizeof(bool)); //copy state of sequencer
+
+    if (!selectButtonIsDown) {
+        memcpy(binState, seq[selectedChannel], stepCount*sizeof(bool)); //copy state of sequencer
         if (tick % 6 < 3) {
             binState[seqPos] = !binState[seqPos];
         }
+    }
+
+    if (selectButtonIsDown) {
+        binState[selectedChannel] = true;
     }
 
     for (byte c = 0; c < maxChanCount; c++) {
         if (seq[c][seqPos]) {
             if (tick % 6 == 0) {
                 MIDI.sendNoteOn(36 + c, 127, 1);
-                if (select) {
-                    binState[c] = true; //clignotte trop vite
-                }
             }
             if (tick % 6 == 3) {
                 MIDI.sendNoteOff(36 + c, 127, 1);
-                if (select) {
-                    binState[c] = false;
-                }
+            }
+            if (selectButtonIsDown) { //select is down => we blink buttons that correspond to channel playing
+                binState[c] = (tick % 6) > 3 ? binState[c] : !binState[c];
             }
         }
-    }
-
-    if (select) {
-        binState[chan] = true;
     }
     
     uint16_t binValue = boolArrayToUint16(binState);
@@ -109,21 +109,26 @@ void setup() {
 }
 
 void loop() {
-    select = digitalRead(SW_SELECT) == HIGH;
+    selectButtonIsDown = digitalRead(SW_SELECT) == HIGH;
 
     for (byte i = 0; i < stepCount; i++) {
         
         if (switches[i]->debounce()) {
             if (switches[i]->getState() == true) {
-                if (select) {
-                    chan = i;
+                if (selectButtonIsDown) {
+                    selectedChannel = i;
                 } else {
-                    seq[chan][i] = !seq[chan][i];
+                    seq[selectedChannel][i] = !seq[selectedChannel][i];
                 }
                 
             }
         }
     }
+
+    int potTempo = analogRead(POT_TEMPO);
+    int tempo = map(potTempo, 0, 1023, 40, 230);
+
+    uClock.setTempo(tempo);
 
     delay(2);
 }
