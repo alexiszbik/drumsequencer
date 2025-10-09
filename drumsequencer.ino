@@ -60,7 +60,7 @@ void onOutputPPQNCallback(uint32_t tick) {
     bool binState[stepCount];
     memset(binState, 0, stepCount*sizeof(bool));
 
-    //bool isOddStep = tick > 
+    bool isOddStep = (tick % (stepLen*2) >= stepLen);
 
     if (!selectButtonIsDown) {
         memcpy(binState, seq[selectedChannel], stepCount*sizeof(bool)); //copy state of sequencer
@@ -73,12 +73,18 @@ void onOutputPPQNCallback(uint32_t tick) {
         binState[selectedChannel] = true;
     }
 
+    byte grooveOffset = 0;
+
+    if (isOddStep) {
+        grooveOffset = groove*halfStepLen;
+    }
+
     for (byte c = 0; c < maxChanCount; c++) {
         if (seq[c][seqPos]) {
-            if (tick % stepLen == 0) {
+            if (tick % stepLen == grooveOffset) {
                 MIDI.sendNoteOn(36 + c, 127, 1);
             }
-            if (tick % stepLen == halfStepLen) {
+            if (tick % stepLen == (halfStepLen + grooveOffset)) {
                 MIDI.sendNoteOff(36 + c, 127, 1);
             }
             if (selectButtonIsDown) { //select is down => we blink buttons that correspond to channel playing
