@@ -10,6 +10,7 @@
 
 #define SW_SELECT 6
 #define SW_SHIFT 7
+#define SW_BARS 10 //note sure yet
 
 #define POT_TEMPO A7
 #define POT_GROOVE A6
@@ -35,12 +36,23 @@ byte selectedChannel = 0;
 enum Mode {
     sequencer,
     selectChannel,
-    muteChannel
+    muteChannel, 
+    eraseChannel
 };
 
 Mode currentMode = sequencer;
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial, MIDI);
+
+uint16_t boolArrayToUint16(bool* bits) {
+    uint16_t value = 0;
+    for (int i = 0; i < 16; i++) {
+        if (bits[i]) {
+            value |= (1 << i);
+        }
+    }
+    return value;
+}
 
 void checkPotentiometers() {
     int potTempo = analogRead(POT_TEMPO);
@@ -53,16 +65,6 @@ void checkPotentiometers() {
 
     int potVelocity = analogRead(POT_VELOCITY);
     velocity = map(potVelocity, 0, 1023, 1, 127);
-}
-
-uint16_t boolArrayToUint16(bool* bits) {
-    uint16_t value = 0;
-    for (int i = 0; i < 16; i++) {
-        if (bits[i]) {
-            value |= (1 << i);
-        }
-    }
-    return value;
 }
 
 void onOutputPPQNCallback(uint32_t tick) {
@@ -108,7 +110,7 @@ void onOutputPPQNCallback(uint32_t tick) {
             if (tick % stepLen == (halfStepLen + grooveOffset)) { //TODO => this should be called elsewhere !
                 MIDI.sendNoteOff(36 + c, 127, 1);
             }
-            if (currentMode == selectChannel || currentMode == muteChannel) { //select is down => we blink buttons that correspond to channel playing
+            if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel) { //select is down => we blink buttons that correspond to channel playing
                 binState[c] = (tick % stepLen) > halfStepLen ? binState[c] : !binState[c];
             }
         }
@@ -132,6 +134,12 @@ void onOutputPPQNCallback(uint32_t tick) {
     seqPos = seqPos % stepCount;
 }
 
+void doEraseChannel(byte c) {
+    for (byte i = 0; i < stepCount; i++) {
+        sequence[c][i] = 0;
+    }
+}
+
 void setup() {
 
     for (int i = 0; i < stepCount; i++) {
@@ -144,6 +152,7 @@ void setup() {
 
     pinMode(SW_SELECT, INPUT_PULLUP);
     pinMode(SW_SHIFT, INPUT_PULLUP);
+    pinMode(SW_BARS, INPUT_PULLUP);
 
     uClock.setOutputPPQN(uClock.PPQN_96);
     uClock.setOnOutputPPQN(onOutputPPQNCallback);
@@ -161,8 +170,11 @@ void loop() {
 
     bool selectButtonIsDown = digitalRead(SW_SELECT) == HIGH;
     bool shiftButtonIsDown = digitalRead(SW_SHIFT) == HIGH;
+    bool barsButtonIsDown = digitalRead(SW_BARS) == HIGH;
 
-    if (shiftButtonIsDown && selectButtonIsDown) {
+    if (shiftButtonIsDown && barsButtonIsDown) {
+        currentMode = eraseChannel;
+    } else if (shiftButtonIsDown && selectButtonIsDown) {
         currentMode = muteChannel;
     } else if (selectButtonIsDown) {
         currentMode = selectChannel;
@@ -174,7 +186,9 @@ void loop() {
         
         if (switches[i]->debounce()) {
             if (switches[i]->getState() == true) {
-                if (currentMode == muteChannel) {
+                if (currentMode == eraseChannel) {
+                    doEraseChannel(i);
+                } else if (currentMode == muteChannel) {
                     isMuted[i] = !isMuted[i];
                 } else if (currentMode == selectChannel) {
                     selectedChannel = i;
