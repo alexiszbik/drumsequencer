@@ -2,7 +2,7 @@
 #include <uClock.h>
 #include "MIDI.h"
 #include "Mux.h"
-#include "Switch.h"
+#include "MuxSwitch.h"
 
 #define SR_LATCH_PIN 8
 #define SR_CLOCK_PIN 12
@@ -20,8 +20,9 @@ const byte maxChanCount = stepCount;
 
 byte sequence[maxChanCount][stepCount];
 byte seqPos = 0;
+bool isMuted[maxChanCount];
 
-Switch* switches[stepCount];
+MuxSwitch* switches[stepCount];
 
 const byte ppqn = 96;
 const byte stepLen = ppqn/4;
@@ -73,6 +74,12 @@ void onOutputPPQNCallback(uint32_t tick) {
 
     bool isOddStep = (tick % (stepLen*2) >= stepLen);
 
+    if (currentMode == muteChannel) {
+        for (byte i = 0; i < maxChanCount; i++) {
+            binState[i] = !isMuted[i];
+        }
+    }
+
     if (currentMode == sequencer) {
         for (byte i = 0; i < stepCount; i++) {
             binState[i] = sequence[selectedChannel][i] > 0;
@@ -94,14 +101,14 @@ void onOutputPPQNCallback(uint32_t tick) {
 
     for (byte c = 0; c < maxChanCount; c++) {
         byte noteValue = sequence[c][seqPos];
-        if (noteValue > 0) {
+        if (noteValue > 0 && !isMuted[c]) {
             if (tick % stepLen == grooveOffset) {
-                MIDI.sendNoteOn(36 + c, noteValue, 1);
+                MIDI.sendNoteOn(36 + c, noteValue, 1); //TODO => store midi state !
             }
-            if (tick % stepLen == (halfStepLen + grooveOffset)) {
+            if (tick % stepLen == (halfStepLen + grooveOffset)) { //TODO => this should be called elsewhere !
                 MIDI.sendNoteOff(36 + c, 127, 1);
             }
-            if (currentMode == selectChannel) { //select is down => we blink buttons that correspond to channel playing
+            if (currentMode == selectChannel || currentMode == muteChannel) { //select is down => we blink buttons that correspond to channel playing
                 binState[c] = (tick % stepLen) > halfStepLen ? binState[c] : !binState[c];
             }
         }
@@ -128,7 +135,7 @@ void onOutputPPQNCallback(uint32_t tick) {
 void setup() {
 
     for (int i = 0; i < stepCount; i++) {
-        switches[i] = new Switch(i);
+        switches[i] = new MuxSwitch(i);
     }
 
     pinMode(SR_LATCH_PIN, OUTPUT);
@@ -148,15 +155,16 @@ void setup() {
     uClock.init();
     uClock.setTempo(120);
     uClock.start();
-  
 }
 
 void loop() {
 
     bool selectButtonIsDown = digitalRead(SW_SELECT) == HIGH;
-    bool shiftButtonIsDown = digitalRead(SW_SELECT) == HIGH;
+    bool shiftButtonIsDown = digitalRead(SW_SHIFT) == HIGH;
 
-    if (selectButtonIsDown) {
+    if (shiftButtonIsDown && selectButtonIsDown) {
+        currentMode = muteChannel;
+    } else if (selectButtonIsDown) {
         currentMode = selectChannel;
     } else {
         currentMode = sequencer;
@@ -166,7 +174,9 @@ void loop() {
         
         if (switches[i]->debounce()) {
             if (switches[i]->getState() == true) {
-                if (currentMode == selectChannel) {
+                if (currentMode == muteChannel) {
+                    isMuted[i] = !isMuted[i];
+                } else if (currentMode == selectChannel) {
                     selectedChannel = i;
                 } else {
                     byte stepValue = sequence[selectedChannel][i];

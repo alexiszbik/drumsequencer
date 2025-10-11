@@ -4,9 +4,9 @@
 using namespace admux;
 Mux mux(Pin(9, INPUT, PinType::Digital), Pinset(2, 3, 4, 5));
 
-class Switch {
+class MuxSwitch {
 public:
-  Switch(byte pin, bool inverted = false) : pin(pin), inverted(inverted) {
+  MuxSwitch(byte pin, bool inverted = false) : pin(pin), inverted(inverted) {
   }
 
   bool debounce() {
