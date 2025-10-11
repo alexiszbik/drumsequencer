@@ -1,6 +1,6 @@
 
 #include <uClock.h>
-#include "MIDI.h"
+#include "MidiOut.h"
 #include "Mux.h"
 #include "MuxSwitch.h"
 
@@ -16,9 +16,6 @@
 #define POT_GROOVE A6
 #define POT_VELOCITY A5
 
-const byte stepCount = 16;
-const byte maxChanCount = stepCount;
-
 byte sequence[maxChanCount][stepCount];
 byte seqPos = 0;
 bool isMuted[maxChanCount];
@@ -33,6 +30,8 @@ float groove = 0.f;
 byte velocity = 0;
 byte selectedChannel = 0;
 
+MidiOut midiOut;
+
 enum Mode {
     sequencer,
     selectChannel,
@@ -41,8 +40,6 @@ enum Mode {
 };
 
 Mode currentMode = sequencer;
-
-MIDI_CREATE_INSTANCE(HardwareSerial, Serial, MIDI);
 
 uint16_t boolArrayToUint16(bool* bits) {
     uint16_t value = 0;
@@ -101,14 +98,16 @@ void onOutputPPQNCallback(uint32_t tick) {
         grooveOffset = groove*halfStepLen;
     }
 
+    if (tick % stepLen == grooveOffset) { //Are the math OK?
+        midiOut.release();
+    }
+
     for (byte c = 0; c < maxChanCount; c++) {
         byte noteValue = sequence[c][seqPos];
         if (noteValue > 0 && !isMuted[c]) {
             if (tick % stepLen == grooveOffset) {
-                MIDI.sendNoteOn(36 + c, noteValue, 1); //TODO => store midi state !
-            }
-            if (tick % stepLen == (halfStepLen + grooveOffset)) { //TODO => this should be called elsewhere !
-                MIDI.sendNoteOff(36 + c, 127, 1);
+                //MIDI.sendNoteOn(36 + c, noteValue, 1); //TODO => store midi state !
+                midiOut.trigChannel(c, noteValue);
             }
             if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel) { //select is down => we blink buttons that correspond to channel playing
                 binState[c] = (tick % stepLen) > halfStepLen ? binState[c] : !binState[c];
@@ -183,7 +182,6 @@ void loop() {
     }
 
     for (byte i = 0; i < stepCount; i++) {
-        
         if (switches[i]->debounce()) {
             if (switches[i]->getState() == true) {
                 if (currentMode == eraseChannel) {
@@ -200,7 +198,6 @@ void loop() {
                         sequence[selectedChannel][i] = velocity;
                     }
                 }
-                
             }
         }
     }
