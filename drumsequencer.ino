@@ -20,8 +20,8 @@ byte sequence[maxChanCount][stepCount * maxBarCount];
 bool isMuted[maxChanCount];
 
 byte seqPos = 0;
-byte currentBar = 0;
-byte currentBarCount = 1;
+byte currentBar = 0; // (0 -> 7)
+byte currentBarCount = 1; // (1 -> 8)
 
 MuxSwitch* switches[stepCount];
 
@@ -55,6 +55,10 @@ uint16_t boolArrayToUint16(bool* bits) {
     return value;
 }
 
+int getStepOffset() {
+    return (currentBar * stepCount);
+}
+
 void checkPotentiometers() {
     int potTempo = analogRead(POT_TEMPO);
     int tempo = map(potTempo, 0, 1023, 40, 230);
@@ -81,7 +85,7 @@ void onOutputPPQNCallback(uint32_t tick) {
         for (byte i = 0; i < 8; i++) {
             binState[i] = i < currentBarCount;
         }
-        byte bc = 8 - currentBar;
+        byte bc = currentBar + 8;
         for (byte i = 8; i < 16; i++) {
             binState[i] = i == bc;
         }
@@ -94,11 +98,16 @@ void onOutputPPQNCallback(uint32_t tick) {
     }
 
     if (currentMode == sequencer) {
+        //fill with sequencer state
+        int stepOffset = getStepOffset();
         for (byte i = 0; i < stepCount; i++) {
-            binState[i] = sequence[selectedChannel][i] > 0;
+            binState[i] = sequence[selectedChannel][i + stepOffset] > 0;
         }
+        //blink !
+        //TODO : blink only the current bar
+        byte stepPos = seqPos % stepCount;
         if (tick % stepLen < halfStepLen) {
-            binState[seqPos] = !binState[seqPos];
+            binState[stepPos] = !binState[stepPos];
         }
     }
 
@@ -143,11 +152,11 @@ void onOutputPPQNCallback(uint32_t tick) {
         checkPotentiometers();
     }
 
-    seqPos = seqPos % stepCount;
+    seqPos = seqPos % (stepCount * currentBarCount);
 }
 
 void doEraseChannel(byte c) {
-    for (byte i = 0; i < stepCount; i++) {
+    for (byte i = 0; i < stepCount * maxBarCount; i++) {
         sequence[c][i] = 0;
     }
 }
@@ -158,15 +167,16 @@ void selectBarCount(byte barCount) {
     }
 }
 
-void selectCurrentBar(byte bar) {
-    currentBar = bar;
-}
-
 void setup() {
 
     for (int i = 0; i < stepCount; i++) {
         switches[i] = new MuxSwitch(i);
     }
+/* for debug
+    for (int i = 16 ; i < 32 ; i++) {
+        sequence[0][i] = 127;
+    }
+*/
 
     pinMode(SR_LATCH_PIN, OUTPUT);
     pinMode(SR_CLOCK_PIN, OUTPUT);
@@ -215,7 +225,7 @@ void loop() {
                     if (i < 8) {
                         selectBarCount(i + 1);
                     } else {
-                        selectCurrentBar(8 - i);
+                        currentBar = i - 8;
                     }
                 } else if (currentMode == eraseChannel) {
                     doEraseChannel(i);
@@ -224,11 +234,12 @@ void loop() {
                 } else if (currentMode == selectChannel) {
                     selectedChannel = i;
                 } else {
-                    byte stepValue = sequence[selectedChannel][i];
+                    int step = i + getStepOffset();
+                    byte stepValue = sequence[selectedChannel][step];
                     if (stepValue > 0) {
-                        sequence[selectedChannel][i] = 0;
+                        sequence[selectedChannel][step] = 0;
                     } else {
-                        sequence[selectedChannel][i] = velocity;
+                        sequence[selectedChannel][step] = velocity;
                     }
                 }
             }
