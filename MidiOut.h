@@ -5,7 +5,7 @@
 #define MIDI_MIN 36
 #define MIDI_CHANNEL 1
 
-MIDI_CREATE_INSTANCE(HardwareSerial, Serial, MIDI);
+MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI);
 
 class MidiOut {
 private:

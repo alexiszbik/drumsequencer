@@ -16,9 +16,12 @@
 #define POT_GROOVE A6
 #define POT_VELOCITY A5
 
-byte sequence[maxChanCount][stepCount];
-byte seqPos = 0;
+byte sequence[maxChanCount][stepCount * maxBarCount];
 bool isMuted[maxChanCount];
+
+byte seqPos = 0;
+byte currentBar = 0;
+byte currentBarCount = 1;
 
 MuxSwitch* switches[stepCount];
 
@@ -36,7 +39,8 @@ enum Mode {
     sequencer,
     selectChannel,
     muteChannel, 
-    eraseChannel
+    eraseChannel,
+    selectBars
 };
 
 Mode currentMode = sequencer;
@@ -73,6 +77,16 @@ void onOutputPPQNCallback(uint32_t tick) {
 
     bool isOddStep = (tick % (stepLen*2) >= stepLen);
 
+    if (currentMode == selectBars) {
+        for (byte i = 0; i < 8; i++) {
+            binState[i] = i < currentBarCount;
+        }
+        byte bc = 8 - currentBar;
+        for (byte i = 8; i < 16; i++) {
+            binState[i] = i == bc;
+        }
+    }
+
     if (currentMode == muteChannel) {
         for (byte i = 0; i < maxChanCount; i++) {
             binState[i] = !isMuted[i];
@@ -98,7 +112,7 @@ void onOutputPPQNCallback(uint32_t tick) {
         grooveOffset = groove*halfStepLen;
     }
 
-    if (tick % stepLen == grooveOffset) { //Are the math OK?
+    if (tick % stepLen == grooveOffset) {
         midiOut.release();
     }
 
@@ -106,10 +120,9 @@ void onOutputPPQNCallback(uint32_t tick) {
         byte noteValue = sequence[c][seqPos];
         if (noteValue > 0 && !isMuted[c]) {
             if (tick % stepLen == grooveOffset) {
-                //MIDI.sendNoteOn(36 + c, noteValue, 1); //TODO => store midi state !
                 midiOut.trigChannel(c, noteValue);
             }
-            if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel) { //select is down => we blink buttons that correspond to channel playing
+            if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel) {
                 binState[c] = (tick % stepLen) > halfStepLen ? binState[c] : !binState[c];
             }
         }
@@ -137,6 +150,16 @@ void doEraseChannel(byte c) {
     for (byte i = 0; i < stepCount; i++) {
         sequence[c][i] = 0;
     }
+}
+
+void selectBarCount(byte barCount) {
+    if (barCount >= 1 && barCount <= maxBarCount) {
+        currentBarCount = barCount;
+    }
+}
+
+void selectCurrentBar(byte bar) {
+    currentBar = bar;
 }
 
 void setup() {
@@ -167,6 +190,8 @@ void setup() {
 
 void loop() {
 
+    uClock.run();
+
     bool selectButtonIsDown = digitalRead(SW_SELECT) == HIGH;
     bool shiftButtonIsDown = digitalRead(SW_SHIFT) == HIGH;
     bool barsButtonIsDown = digitalRead(SW_BARS) == HIGH;
@@ -175,6 +200,8 @@ void loop() {
         currentMode = eraseChannel;
     } else if (shiftButtonIsDown && selectButtonIsDown) {
         currentMode = muteChannel;
+    } else if (barsButtonIsDown) {
+        currentMode = selectBars;
     } else if (selectButtonIsDown) {
         currentMode = selectChannel;
     } else {
@@ -184,7 +211,13 @@ void loop() {
     for (byte i = 0; i < stepCount; i++) {
         if (switches[i]->debounce()) {
             if (switches[i]->getState() == true) {
-                if (currentMode == eraseChannel) {
+                if (currentMode == selectBars) {
+                    if (i < 8) {
+                        selectBarCount(i + 1);
+                    } else {
+                        selectCurrentBar(8 - i);
+                    }
+                } else if (currentMode == eraseChannel) {
                     doEraseChannel(i);
                 } else if (currentMode == muteChannel) {
                     isMuted[i] = !isMuted[i];
@@ -201,6 +234,4 @@ void loop() {
             }
         }
     }
-
-    delay(2);
 }
