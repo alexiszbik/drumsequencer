@@ -25,6 +25,10 @@
 byte sequence[maxChanCount][stepCount * maxBarCount];
 bool isMuted[maxChanCount];
 
+bool isPlaying = true;
+float groove = 0.f;
+byte velocity = 0;
+byte selectedChannel = 0;
 uint32_t currentTick = 0;
 byte seqPos = 0;
 byte currentBar = 0; // (0 -> 7)
@@ -32,17 +36,15 @@ byte currentBarCount = 1; // (1 -> 8)
 
 MuxSwitch* switches[stepCount];
 
-Switch playButton = Switch(PLAY_BUTTON);
 
-float groove = 0.f;
-byte velocity = 0;
-byte selectedChannel = 0;
+Switch selectButton = Switch(SW_SELECT);
+Switch shiftButton = Switch(SW_SHIFT);
+Switch barsButton = Switch(SW_BARS);
+Switch playButton = Switch(PLAY_BUTTON);
 
 MidiOut midiOut;
 
 LEDGroup ledGroup = LEDGroup(SR_LATCH_PIN, SR_CLOCK_PIN, SR_DATA_PIN);
-
-bool isPlaying = true;
 
 enum Mode {
     sequencer,
@@ -54,14 +56,10 @@ enum Mode {
 
 Mode currentMode = sequencer;
 
-bool selectButtonIsDown = false;
-bool shiftButtonIsDown = false;
-bool barsButtonIsDown = false;
-
 void playButtonCallback() {
     if (playButton.debounce()) {
         if (playButton.getState()) {
-            if (shiftButtonIsDown && isPlaying) {
+            if (shiftButton.getState() && isPlaying) {
                 setIsPlaying(false);
                 setIsPlaying(true);
             } else {
@@ -249,9 +247,15 @@ void loop() {
 
     uClock.run();
 
-    selectButtonIsDown = digitalRead(SW_SELECT) == HIGH;
-    shiftButtonIsDown = digitalRead(SW_SHIFT) == HIGH;
-    barsButtonIsDown = digitalRead(SW_BARS) == HIGH;
+    bool needsLedUpdate = false;
+
+    if (selectButton.debounce() || shiftButton.debounce() || barsButton.debounce()) {
+        needsLedUpdate = !isPlaying;
+    }
+
+    bool selectButtonIsDown = selectButton.getState();
+    bool shiftButtonIsDown = shiftButton.getState();
+    bool barsButtonIsDown = barsButton.getState();
 
     playButtonCheck.update();
 
@@ -266,8 +270,6 @@ void loop() {
     } else {
         currentMode = sequencer;
     }
-
-    bool needsLedUpdate = false;
 
     for (byte i = 0; i < stepCount; i++) {
         if (switches[i]->debounce()) {
