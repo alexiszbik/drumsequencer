@@ -4,6 +4,7 @@
 #include "Mux.h"
 #include "MuxSwitch.h"
 #include "Switch.h"
+#include "LEDGroup.h"
 
 #define SR_LATCH_PIN 8
 #define SR_CLOCK_PIN 12
@@ -41,6 +42,8 @@ byte selectedChannel = 0;
 
 MidiOut midiOut;
 
+LEDGroup ledGroup = LEDGroup(SR_LATCH_PIN, SR_CLOCK_PIN, SR_DATA_PIN);
+
 bool isPlaying = true;
 
 enum Mode {
@@ -52,16 +55,6 @@ enum Mode {
 };
 
 Mode currentMode = sequencer;
-
-uint16_t boolArrayToUint16(bool* bits) {
-    uint16_t value = 0;
-    for (int i = 0; i < 16; i++) {
-        if (bits[i]) {
-            value |= (1 << i);
-        }
-    }
-    return value;
-}
 
 int getStepOffset() {
     return (currentBar * stepCount);
@@ -81,9 +74,6 @@ void checkPotentiometers() {
 }
 
 void onOutputPPQNCallback(uint32_t tick) {
-
-    digitalWrite(SR_LATCH_PIN, LOW);
-
     bool isHalfStep = (tick % stepLen) <= halfStepLen;
     byte currentPlayedBar = seqPos / stepCount;
 
@@ -159,15 +149,7 @@ void onOutputPPQNCallback(uint32_t tick) {
         }
     }
     
-    uint16_t binValue = boolArrayToUint16(binState);
-
-    byte lowByte  = binValue & 0xFF;        // bits 0-7
-    byte highByte = (binValue >> 8) & 0xFF; // bits 8-15
-
-    shiftOut(SR_DATA_PIN, SR_CLOCK_PIN, MSBFIRST, highByte);
-    shiftOut(SR_DATA_PIN, SR_CLOCK_PIN, MSBFIRST, lowByte);
-
-    digitalWrite(SR_LATCH_PIN, HIGH);
+    ledGroup.process(binState);
 
     if (tick % stepLen == (stepLen-1)) {
         seqPos++;
@@ -200,10 +182,6 @@ void setup() {
     }
 */
 
-    pinMode(SR_LATCH_PIN, OUTPUT);
-    pinMode(SR_CLOCK_PIN, OUTPUT);
-    pinMode(SR_DATA_PIN, OUTPUT);
-
     pinMode(SW_SELECT, INPUT_PULLUP);
     pinMode(SW_SHIFT, INPUT_PULLUP);
     pinMode(SW_BARS, INPUT_PULLUP);
@@ -222,6 +200,17 @@ void setup() {
     uClock.start();
 }
 
+void setIsPlaying(bool state) {
+    isPlaying = state;
+    if (!isPlaying) {
+        uClock.stop();
+        midiOut.release();
+        seqPos = 0;
+    } else {
+        uClock.start();
+    }
+}
+
 void loop() {
 
     uClock.run();
@@ -230,21 +219,13 @@ void loop() {
     bool shiftButtonIsDown = digitalRead(SW_SHIFT) == HIGH;
     bool barsButtonIsDown = digitalRead(SW_BARS) == HIGH;
 
-
     if (playButton.debounce()) {
         if (playButton.getState()) {
-            if (shiftButtonIsDown) {
-                uClock.stop();
-                seqPos = 0;
-                uClock.start();
+            if (shiftButtonIsDown && isPlaying) {
+                setIsPlaying(false);
+                setIsPlaying(true);
             } else {
-                isPlaying = !isPlaying;
-                if (!isPlaying) {
-                    uClock.stop();
-                    seqPos = 0;
-                } else {
-                    uClock.start();
-                }
+                setIsPlaying(!isPlaying);
             }
         }
     }
@@ -263,7 +244,7 @@ void loop() {
 
     for (byte i = 0; i < stepCount; i++) {
         if (switches[i]->debounce()) {
-            if (switches[i]->getState() == true) {
+            if (switches[i]->getState()) {
                 if (currentMode == selectBars) {
                     if (i < 8) {
                         selectBarCount(i + 1);

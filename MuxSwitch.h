@@ -27,7 +27,6 @@ public:
 
 private:
   byte pin;
-  bool analogPin;
   bool inverted;
 
   bool state = false;

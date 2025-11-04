@@ -11,6 +11,10 @@ class MidiOut {
 private:
     bool trigState[maxChanCount];
 public:
+    MidiOut() {
+        memset(trigState, 0, maxChanCount * sizeof(bool));
+    }
+
     void trigChannel(byte c, byte velocity) {
         MIDI.sendNoteOn(MIDI_MIN + c, velocity, MIDI_CHANNEL); 
         trigState[c] = true;
