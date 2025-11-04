@@ -36,7 +36,6 @@ byte currentBarCount = 1; // (1 -> 8)
 
 MuxSwitch* switches[stepCount];
 
-
 Switch selectButton = Switch(SW_SELECT);
 Switch shiftButton = Switch(SW_SHIFT);
 Switch barsButton = Switch(SW_BARS);
@@ -50,7 +49,7 @@ enum Mode {
     sequencer,
     selectChannel,
     muteChannel, 
-    eraseChannel,
+    eraseChannel, //TODO : update erase channel LEDs => display LED HIGH if channel got at least one step with > 0
     selectBars
 };
 
@@ -133,9 +132,11 @@ void processLEDs() {
         }
         //blink !
         //blink only the current bar
-        byte stepPos = seqPos % stepCount;
-        if (isHalfStep && currentPlayedBar == currentBar) {
-            binState[stepPos] = !binState[stepPos];
+        if (isPlaying) {
+            byte stepPos = seqPos % stepCount;
+            if (isHalfStep && currentPlayedBar == currentBar) {
+                binState[stepPos] = !binState[stepPos];
+            }
         }
     }
 
@@ -151,18 +152,17 @@ void processLEDs() {
       digitalWrite(SYNC_OUT, HIGH);
     }
 
-    if (currentTick % stepLen == getGrooveOffset()) {
-        midiOut.release();
-    }
-
-    for (byte c = 0; c < maxChanCount; c++) {
-        byte noteValue = sequence[c][seqPos];
-        if (noteValue > 0 && !isMuted[c]) {
-            if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel) {
-                binState[c] = (currentTick % stepLen) > halfStepLen ? binState[c] : !binState[c];
+    if (isPlaying) {
+        for (byte c = 0; c < maxChanCount; c++) {
+            byte noteValue = sequence[c][seqPos];
+            if (noteValue > 0 && !isMuted[c]) {
+                if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel) {
+                    binState[c] = (currentTick % stepLen) > halfStepLen ? binState[c] : !binState[c];
+                }
             }
         }
     }
+    
     
     ledGroup.process(binState);
 }
@@ -172,6 +172,10 @@ void onOutputPPQNCallback(uint32_t tick) {
     currentTick = tick;
 
     processLEDs();
+
+    if (currentTick % stepLen == getGrooveOffset()) {
+        midiOut.release();
+    }
 
     for (byte c = 0; c < maxChanCount; c++) {
         byte noteValue = sequence[c][seqPos];
@@ -207,11 +211,6 @@ void setup() {
     for (int i = 0; i < stepCount; i++) {
         switches[i] = new MuxSwitch(i);
     }
-/* for debug
-    for (int i = 16 ; i < 32 ; i++) {
-        sequence[0][i] = 127;
-    }
-*/
 
     pinMode(SW_SELECT, INPUT_PULLUP);
     pinMode(SW_SHIFT, INPUT_PULLUP);
@@ -237,6 +236,7 @@ void setIsPlaying(bool state) {
         uClock.stop();
         midiOut.release();
         seqPos = 0;
+        currentTick = 0;
         processLEDs();
     } else {
         uClock.start();
