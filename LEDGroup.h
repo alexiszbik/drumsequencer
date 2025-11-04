@@ -19,11 +19,8 @@ private:
         }
         return value;
     }
-public:
-    //binState should be size of 16 !!!
-    void process(bool* binState) {
-        uint16_t binValue = boolArrayToUint16(binState);
 
+    void sendData(uint16_t binValue) {
         byte lowByte  = binValue & 0xFF;        // bits 0-7
         byte highByte = (binValue >> 8) & 0xFF; // bits 8-15
 
@@ -33,6 +30,17 @@ public:
         shiftOut(dataPin, clockPin, MSBFIRST, lowByte);
 
         digitalWrite(latchPin, HIGH);
+    }
+
+public:
+    //binState should be size of 16 !!!
+    void process(bool* binState) {
+        uint16_t binValue = boolArrayToUint16(binState);
+        sendData(binValue);
+    }
+
+    void shutdown() {
+        sendData(0);
     }
 
 private:

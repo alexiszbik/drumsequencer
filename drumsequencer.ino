@@ -5,6 +5,7 @@
 #include "MuxSwitch.h"
 #include "Switch.h"
 #include "LEDGroup.h"
+#include "TimedTask.h"
 
 #define SR_LATCH_PIN 8
 #define SR_CLOCK_PIN 12
@@ -32,10 +33,6 @@ MuxSwitch* switches[stepCount];
 
 Switch playButton = Switch(PLAY_BUTTON);
 
-const byte ppqn = 96;
-const byte stepLen = ppqn/4;
-const byte halfStepLen = stepLen/2;
-
 float groove = 0.f;
 byte velocity = 0;
 byte selectedChannel = 0;
@@ -56,6 +53,25 @@ enum Mode {
 
 Mode currentMode = sequencer;
 
+bool selectButtonIsDown = false;
+bool shiftButtonIsDown = false;
+bool barsButtonIsDown = false;
+
+void playButtonCallback() {
+    if (playButton.debounce()) {
+        if (playButton.getState()) {
+            if (shiftButtonIsDown && isPlaying) {
+                setIsPlaying(false);
+                setIsPlaying(true);
+            } else {
+                setIsPlaying(!isPlaying);
+            }
+        }
+    }
+}
+
+TimedTask playButtonCheck(20, playButtonCallback);
+
 int getStepOffset() {
     return (currentBar * stepCount);
 }
@@ -71,6 +87,10 @@ void checkPotentiometers() {
 
     int potVelocity = analogRead(POT_VELOCITY);
     velocity = map(potVelocity, 0, 1023, 1, 127);
+}
+
+void processLEDs() {
+    
 }
 
 void onOutputPPQNCallback(uint32_t tick) {
@@ -153,7 +173,7 @@ void onOutputPPQNCallback(uint32_t tick) {
 
     if (tick % stepLen == (stepLen-1)) {
         seqPos++;
-        checkPotentiometers();
+        checkPotentiometers(); //TODO maybe use a callback for this
     }
 
     seqPos = seqPos % (stepCount * currentBarCount);
@@ -215,20 +235,11 @@ void loop() {
 
     uClock.run();
 
-    bool selectButtonIsDown = digitalRead(SW_SELECT) == HIGH;
-    bool shiftButtonIsDown = digitalRead(SW_SHIFT) == HIGH;
-    bool barsButtonIsDown = digitalRead(SW_BARS) == HIGH;
+    selectButtonIsDown = digitalRead(SW_SELECT) == HIGH;
+    shiftButtonIsDown = digitalRead(SW_SHIFT) == HIGH;
+    barsButtonIsDown = digitalRead(SW_BARS) == HIGH;
 
-    if (playButton.debounce()) {
-        if (playButton.getState()) {
-            if (shiftButtonIsDown && isPlaying) {
-                setIsPlaying(false);
-                setIsPlaying(true);
-            } else {
-                setIsPlaying(!isPlaying);
-            }
-        }
-    }
+    playButtonCheck.update();
 
     if (shiftButtonIsDown && barsButtonIsDown) {
         currentMode = eraseChannel;
