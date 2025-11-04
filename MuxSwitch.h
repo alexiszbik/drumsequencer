@@ -1,5 +1,5 @@
-#ifndef SWITCH_H
-#define SWITCH_H
+#ifndef MUXSWITCH_H
+#define MUXSWITCH_H
 
 using namespace admux;
 Mux mux(Pin(9, INPUT, PinType::Digital), Pinset(2, 3, 4, 5));
@@ -35,4 +35,4 @@ private:
 };
 
 
-#endif //SWITCH_H
+#endif //MUXSWITCH_H

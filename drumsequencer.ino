@@ -3,6 +3,7 @@
 #include "MidiOut.h"
 #include "Mux.h"
 #include "MuxSwitch.h"
+#include "Switch.h"
 
 #define SR_LATCH_PIN 8
 #define SR_CLOCK_PIN 12
@@ -17,6 +18,7 @@
 #define POT_VELOCITY A5
 
 #define SYNC_OUT A0
+#define PLAY_BUTTON A1
 
 byte sequence[maxChanCount][stepCount * maxBarCount];
 bool isMuted[maxChanCount];
@@ -27,6 +29,8 @@ byte currentBarCount = 1; // (1 -> 8)
 
 MuxSwitch* switches[stepCount];
 
+Switch playButton = Switch(PLAY_BUTTON);
+
 const byte ppqn = 96;
 const byte stepLen = ppqn/4;
 const byte halfStepLen = stepLen/2;
@@ -36,6 +40,8 @@ byte velocity = 0;
 byte selectedChannel = 0;
 
 MidiOut midiOut;
+
+bool isPlaying = true;
 
 enum Mode {
     sequencer,
@@ -78,6 +84,9 @@ void onOutputPPQNCallback(uint32_t tick) {
 
     digitalWrite(SR_LATCH_PIN, LOW);
 
+    bool isHalfStep = (tick % stepLen) <= halfStepLen;
+    byte currentPlayedBar = seqPos / stepCount;
+
     bool binState[stepCount];
     memset(binState, 0, stepCount*sizeof(bool));
 
@@ -85,7 +94,10 @@ void onOutputPPQNCallback(uint32_t tick) {
 
     if (currentMode == selectBars) {
         for (byte i = 0; i < 8; i++) {
-            binState[i] = i < currentBarCount;
+            binState[i] = (i < currentBarCount);
+            if (i == currentPlayedBar) {
+                binState[i] = binState[i] && isHalfStep;
+            }
         }
         byte bc = currentBar + 8;
         for (byte i = 8; i < 16; i++) {
@@ -106,9 +118,9 @@ void onOutputPPQNCallback(uint32_t tick) {
             binState[i] = sequence[selectedChannel][i + stepOffset] > 0;
         }
         //blink !
-        //TODO : blink only the current bar
+        //blink only the current bar
         byte stepPos = seqPos % stepCount;
-        if (tick % stepLen < halfStepLen) {
+        if (isHalfStep && currentPlayedBar == currentBar) {
             binState[stepPos] = !binState[stepPos];
         }
     }
@@ -217,6 +229,25 @@ void loop() {
     bool selectButtonIsDown = digitalRead(SW_SELECT) == HIGH;
     bool shiftButtonIsDown = digitalRead(SW_SHIFT) == HIGH;
     bool barsButtonIsDown = digitalRead(SW_BARS) == HIGH;
+
+
+    if (playButton.debounce()) {
+        if (playButton.getState()) {
+            if (shiftButtonIsDown) {
+                uClock.stop();
+                seqPos = 0;
+                uClock.start();
+            } else {
+                isPlaying = !isPlaying;
+                if (!isPlaying) {
+                    uClock.stop();
+                    seqPos = 0;
+                } else {
+                    uClock.start();
+                }
+            }
+        }
+    }
 
     if (shiftButtonIsDown && barsButtonIsDown) {
         currentMode = eraseChannel;
