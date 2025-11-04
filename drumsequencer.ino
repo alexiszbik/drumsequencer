@@ -16,6 +16,8 @@
 #define POT_GROOVE A6
 #define POT_VELOCITY A5
 
+#define SYNC_OUT A0
+
 byte sequence[maxChanCount][stepCount * maxBarCount];
 bool isMuted[maxChanCount];
 
@@ -121,6 +123,14 @@ void onOutputPPQNCallback(uint32_t tick) {
         grooveOffset = groove*halfStepLen;
     }
 
+    if (tick % stepLen == halfStepLen) {
+      digitalWrite(SYNC_OUT, LOW);
+    }
+
+    if (tick % stepLen == 0) {
+      digitalWrite(SYNC_OUT, HIGH);
+    }
+
     if (tick % stepLen == grooveOffset) {
         midiOut.release();
     }
@@ -185,6 +195,8 @@ void setup() {
     pinMode(SW_SELECT, INPUT_PULLUP);
     pinMode(SW_SHIFT, INPUT_PULLUP);
     pinMode(SW_BARS, INPUT_PULLUP);
+
+    pinMode(SYNC_OUT, OUTPUT);
 
     uClock.setOutputPPQN(uClock.PPQN_96);
     uClock.setOnOutputPPQN(onOutputPPQNCallback);
