@@ -33,6 +33,7 @@ uint32_t currentTick = 0;
 byte seqPos = 0;
 byte currentBar = 0; // (0 -> 7)
 byte currentBarCount = 1; // (1 -> 8)
+bool needRestart = false;
 
 MuxSwitch* switches[stepCount];
 
@@ -55,21 +56,6 @@ enum Mode {
 
 Mode currentMode = sequencer;
 
-void playButtonCallback() {
-    if (playButton.debounce()) {
-        if (playButton.getState()) {
-            if (shiftButton.getState() && isPlaying) {
-                setIsPlaying(false);
-                setIsPlaying(true);
-            } else {
-                setIsPlaying(!isPlaying);
-            }
-        }
-    }
-}
-
-TimedTask playButtonCheck(20, playButtonCallback);
-
 int getStepOffset() {
     return (currentBar * stepCount);
 }
@@ -90,9 +76,7 @@ void checkPotentiometers() {
 byte getGrooveOffset() {
     byte grooveOffset = 0;
 
-    bool isOddStep = (currentTick % (stepLen*2) >= stepLen);
-
-    if (isOddStep) {
+    if (seqPos % 2 == 1) {
         grooveOffset = groove*halfStepLen;
     }
     return grooveOffset;
@@ -189,9 +173,14 @@ void onOutputPPQNCallback(uint32_t tick) {
     if (currentTick % stepLen == (stepLen-1)) {
         seqPos++;
         checkPotentiometers(); //TODO maybe use a callback for this
+        if (needRestart) {
+            needRestart = false;
+            seqPos = 0;
+        }
     }
 
     seqPos = seqPos % (stepCount * currentBarCount);
+    
 }
 
 void doEraseChannel(byte c) {
@@ -207,6 +196,7 @@ void selectBarCount(byte barCount) {
 }
 
 void setup() {
+    delay(200);
 
     for (int i = 0; i < stepCount; i++) {
         switches[i] = new MuxSwitch(i);
@@ -242,6 +232,24 @@ void setIsPlaying(bool state) {
         uClock.start();
     }
 }
+
+void restartBars() {
+    needRestart = true;
+}
+
+void playButtonCallback() {
+    if (playButton.debounce()) {
+        if (playButton.getState()) {
+            if (shiftButton.getState() && isPlaying) {
+                restartBars();
+            } else {
+                setIsPlaying(!isPlaying);
+            }
+        }
+    }
+}
+
+TimedTask playButtonCheck(20, playButtonCallback);
 
 void loop() {
 
