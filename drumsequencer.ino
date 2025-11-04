@@ -25,6 +25,7 @@
 byte sequence[maxChanCount][stepCount * maxBarCount];
 bool isMuted[maxChanCount];
 
+uint32_t currentTick = 0;
 byte seqPos = 0;
 byte currentBar = 0; // (0 -> 7)
 byte currentBarCount = 1; // (1 -> 8)
@@ -89,18 +90,23 @@ void checkPotentiometers() {
     velocity = map(potVelocity, 0, 1023, 1, 127);
 }
 
-void processLEDs() {
-    
+byte getGrooveOffset() {
+    byte grooveOffset = 0;
+
+    bool isOddStep = (currentTick % (stepLen*2) >= stepLen);
+
+    if (isOddStep) {
+        grooveOffset = groove*halfStepLen;
+    }
+    return grooveOffset;
 }
 
-void onOutputPPQNCallback(uint32_t tick) {
-    bool isHalfStep = (tick % stepLen) <= halfStepLen;
-    byte currentPlayedBar = seqPos / stepCount;
-
+void processLEDs() {
     bool binState[stepCount];
     memset(binState, 0, stepCount*sizeof(bool));
 
-    bool isOddStep = (tick % (stepLen*2) >= stepLen);
+    bool isHalfStep = (currentTick % stepLen) <= halfStepLen;
+    byte currentPlayedBar = seqPos / stepCount;
 
     if (currentMode == selectBars) {
         for (byte i = 0; i < 8; i++) {
@@ -139,39 +145,46 @@ void onOutputPPQNCallback(uint32_t tick) {
         binState[selectedChannel] = true;
     }
 
-    byte grooveOffset = 0;
-
-    if (isOddStep) {
-        grooveOffset = groove*halfStepLen;
-    }
-
-    if (tick % stepLen == halfStepLen) {
+    if (currentTick % stepLen == halfStepLen) {
       digitalWrite(SYNC_OUT, LOW);
     }
 
-    if (tick % stepLen == 0) {
+    if (currentTick % stepLen == 0) {
       digitalWrite(SYNC_OUT, HIGH);
     }
 
-    if (tick % stepLen == grooveOffset) {
+    if (currentTick % stepLen == getGrooveOffset()) {
         midiOut.release();
     }
 
     for (byte c = 0; c < maxChanCount; c++) {
         byte noteValue = sequence[c][seqPos];
         if (noteValue > 0 && !isMuted[c]) {
-            if (tick % stepLen == grooveOffset) {
-                midiOut.trigChannel(c, noteValue);
-            }
             if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel) {
-                binState[c] = (tick % stepLen) > halfStepLen ? binState[c] : !binState[c];
+                binState[c] = (currentTick % stepLen) > halfStepLen ? binState[c] : !binState[c];
             }
         }
     }
     
     ledGroup.process(binState);
+}
 
-    if (tick % stepLen == (stepLen-1)) {
+void onOutputPPQNCallback(uint32_t tick) {
+    
+    currentTick = tick;
+
+    processLEDs();
+
+    for (byte c = 0; c < maxChanCount; c++) {
+        byte noteValue = sequence[c][seqPos];
+        if (noteValue > 0 && !isMuted[c]) {
+            if (currentTick % stepLen == getGrooveOffset()) {
+                midiOut.trigChannel(c, noteValue);
+            }
+        }
+    }
+
+    if (currentTick % stepLen == (stepLen-1)) {
         seqPos++;
         checkPotentiometers(); //TODO maybe use a callback for this
     }
@@ -226,6 +239,7 @@ void setIsPlaying(bool state) {
         uClock.stop();
         midiOut.release();
         seqPos = 0;
+        processLEDs();
     } else {
         uClock.start();
     }
@@ -253,6 +267,8 @@ void loop() {
         currentMode = sequencer;
     }
 
+    bool needsLedUpdate = false;
+
     for (byte i = 0; i < stepCount; i++) {
         if (switches[i]->debounce()) {
             if (switches[i]->getState()) {
@@ -278,6 +294,11 @@ void loop() {
                     }
                 }
             }
+            needsLedUpdate = !isPlaying;
         }
+    }
+
+    if (needsLedUpdate) {
+        processLEDs();
     }
 }
