@@ -9,24 +9,45 @@ MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI);
 
 class MidiOut {
 private:
-    bool trigState[maxChanCount];
+    struct NoteState {
+        bool triggered = false;
+        byte value = 0;
+    };
+
+    NoteState noteState[maxChanCount];
+    unsigned long time = 0;
 public:
     MidiOut() {
-        memset(trigState, 0, maxChanCount * sizeof(bool));
+        memset(noteState, 0, maxChanCount * sizeof(bool));
     }
 
-    void trigChannel(byte c, byte velocity) {
-        MIDI.sendNoteOn(MIDI_MIN + c, velocity, MIDI_CHANNEL); 
-        trigState[c] = true;
+    void loadNote(byte c, byte velocity) {
+        noteState[c].value = velocity;
+        noteState[c].triggered = false;
+    }
+
+    void setTime(unsigned long time) {
+        this->time = time;
     }
 
     void release() {
         for (byte c = 0; c < maxChanCount; c++) {
-            if (trigState[c]) {
+            if (noteState[c].value > 0) {
                 MIDI.sendNoteOff(MIDI_MIN + c, 127, MIDI_CHANNEL);
-                trigState[c] = false; 
+                noteState[c].value = 0; 
             }
         } 
+    }
+
+    void sendOutput(unsigned long time) {
+        if (this->time <= time) {
+            for (byte c = 0; c < maxChanCount; c++) {
+                if (noteState[c].value > 0 && noteState[c].triggered == false) {
+                    MIDI.sendNoteOn(MIDI_MIN + c, noteState[c].value, MIDI_CHANNEL); 
+                    noteState[c].triggered = true; 
+                }
+            }
+        }
     }
     
 };
