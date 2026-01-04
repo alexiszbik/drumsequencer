@@ -3,7 +3,7 @@
 #include "Const.h"
 
 #define MIDI_MIN 36
-#define MIDI_CHANNEL 1
+#define MIDI_CHANNEL 10
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI);
 
@@ -15,10 +15,13 @@ private:
     };
 
     NoteState noteState[maxChanCount];
+    bool liveState[maxChanCount];
     unsigned long time = 0;
+
 public:
     MidiOut() {
-        memset(noteState, 0, maxChanCount * sizeof(bool));
+        Serial1.begin(31250);
+        memset(liveState, 0, maxChanCount * sizeof(bool));
     }
 
     void loadNote(byte c, byte velocity) {
@@ -48,6 +51,22 @@ public:
                 }
             }
         }
+    }
+
+    void performNoteNow(byte c) {
+        MIDI.sendNoteOn(MIDI_MIN + c, 127, MIDI_CHANNEL); 
+        liveState[c] = true;
+    }
+
+    void releaseNoteNow(byte c) {
+        if (liveState[c]) {
+            MIDI.sendNoteOff(MIDI_MIN + c, 127, MIDI_CHANNEL);
+            liveState[c] = false;
+        }
+    }
+
+    bool getLiveState(byte c) {
+        return liveState[c];
     }
     
 };

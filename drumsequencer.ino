@@ -64,6 +64,8 @@ enum Mode {
 
 Mode currentMode = sequencer;
 
+bool isPerform = false;
+
 int getStepOffset() {
     return (currentBar * stepCount);
 }
@@ -117,19 +119,26 @@ void processLEDs() {
     }
 
     if (currentMode == sequencer) {
-        //fill with sequencer state
-        int stepOffset = getStepOffset();
-        for (byte i = 0; i < stepCount; i++) {
-            binState[i] = sequence[selectedChannel][i + stepOffset] > 0;
-        }
-        //blink !
-        //blink only the current bar
-        if (isPlaying) {
-            byte stepPos = seqPos % stepCount;
-            if (isHalfStep && currentPlayedBar == currentBar) {
-                binState[stepPos] = !binState[stepPos];
+        if (isPerform) {
+            for (byte i = 0; i < stepCount; i++) {
+                binState[i] = midiOut.getLiveState(i);
+            }
+        } else {
+            //fill with sequencer state
+            int stepOffset = getStepOffset();
+            for (byte i = 0; i < stepCount; i++) {
+                binState[i] = sequence[selectedChannel][i + stepOffset] > 0;
+            }
+            //blink !
+            //blink only the current bar
+            if (isPlaying) {
+                byte stepPos = seqPos % stepCount;
+                if (isHalfStep && currentPlayedBar == currentBar) {
+                    binState[stepPos] = !binState[stepPos];
+                }
             }
         }
+        
     }
 
     if (currentMode == selectChannel) {
@@ -154,7 +163,7 @@ void processLEDs() {
         for (byte c = 0; c < maxChanCount; c++) {
             byte noteValue = sequence[c][seqPos];
             if (noteValue > 0 && !isMuted[c]) {
-                if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel) {
+                if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel || isPerform) {
                     binState[c] = (currentTick % stepLen) > halfStepLen ? binState[c] : !binState[c];
                 }
             }
@@ -182,14 +191,14 @@ void onTick(uint32_t tick) {
 
         unsigned long offset = isOddStep ? (stepDuration/2.0) * groove : 0;
 
-        midiOut.setTime(millis() + offset);
-
         for (byte c = 0; c < maxChanCount; c++) {
             byte noteValue = sequence[c][seqPos];
             if (noteValue > 0 && !isMuted[c]) {
                 midiOut.loadNote(c, noteValue);
             }
         }
+
+        midiOut.setTime(millis() + offset);
     }
 
     if (currentTick % stepLen >= (stepLen-1)) {
@@ -349,6 +358,12 @@ void loop() {
                     stepState[i] = !stepState[i];
                 } else if (currentMode == selectChannel) {
                     selectedChannel = i;
+                } else if (shiftButtonIsDown) { //Select new modes
+                    if (i == 0) {
+                        isPerform = !isPerform;
+                    }
+                } else if (isPerform) {
+                    midiOut.performNoteNow(i);
                 } else {
                     int step = i + getStepOffset();
                     byte stepValue = sequence[selectedChannel][step];
@@ -358,7 +373,12 @@ void loop() {
                         sequence[selectedChannel][step] = velocity;
                     }
                 }
+            } else {
+                if (isPerform) {
+                    midiOut.releaseNoteNow(i);
+                } 
             }
+
             needsLedUpdate = !isPlaying;
         }
     }
