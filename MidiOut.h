@@ -53,15 +53,23 @@ public:
         }
     }
 
-    void performNoteNow(byte c) {
-        MIDI.sendNoteOn(MIDI_MIN + c, 127, MIDI_CHANNEL); 
+    void performNoteNow(byte c, byte velocity, bool isRepeat) {
+        if (!isRepeat) {
+            MIDI.sendNoteOn(MIDI_MIN + c, velocity, MIDI_CHANNEL); 
+        }
         liveState[c] = true;
     }
 
-    void releaseNoteNow(byte c) {
-        if (liveState[c]) {
+    void releaseNoteNow(byte c, bool isRepeat) {
+        if (liveState[c] && !isRepeat) {
             MIDI.sendNoteOff(MIDI_MIN + c, 127, MIDI_CHANNEL);
-            liveState[c] = false;
+        }
+        liveState[c] = false;
+    }
+
+    void releaseAllLiveNotes(bool isRepeat) {
+        for (byte c = 0; c < maxChanCount; c++) {
+            releaseNoteNow(c, isRepeat);
         }
     }
 

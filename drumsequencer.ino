@@ -35,13 +35,13 @@ uint32_t currentTick = 0;
 uint32_t midiTick = 0;
 bool isMidiSynced = false;
 byte seqPos = 0;
-byte currentBar = 0; // (0 -> 7)
-byte currentBarCount = 1; // (1 -> 8)
+byte currentBar = 0;       // (0 -> 7)
+byte currentBarCount = 1;  // (1 -> 8)
 bool needRestart = false;
 
 unsigned long lifeTime = 0;
 
-MuxSwitch* switches[stepCount];
+MuxSwitch switches[stepCount];
 
 Switch selectButton = Switch(SW_SELECT);
 Switch shiftButton = Switch(SW_SHIFT);
@@ -54,338 +54,350 @@ MidiOut midiOut;
 LEDGroup ledGroup = LEDGroup(SR_LATCH_PIN, SR_CLOCK_PIN, SR_DATA_PIN);
 
 enum Mode {
-    sequencer,
-    selectChannel,
-    muteChannel, 
-    eraseChannel, //TODO : update erase channel LEDs => display LED HIGH if channel got at least one step with > 0
-    selectBars,
-    enableSteps
+  sequencer,
+  selectChannel,
+  muteChannel,
+  eraseChannel,  //TODO : update erase channel LEDs => display LED HIGH if channel got at least one step with > 0
+  selectBars,
+  enableSteps
 };
 
 Mode currentMode = sequencer;
 
 bool isPerform = false;
+bool isRepeat = false;
 
 int getStepOffset() {
-    return (currentBar * stepCount);
+  return (currentBar * stepCount);
 }
 
 void checkPotentiometers() {
-    int potTempo = analogRead(POT_TEMPO);
-    int tempo = map(potTempo, 0, 1023, 40, 230);
+  int potTempo = analogRead(POT_TEMPO);
+  int tempo = map(potTempo, 0, 1023, 40, 230);
 
-    uClock.setTempo(tempo);
+  uClock.setTempo(tempo);
 
-    float potGroove = (float)analogRead(POT_GROOVE);
-    groove = potGroove/1023.f;
+  float potGroove = (float)analogRead(POT_GROOVE);
+  groove = potGroove / 1023.f;
 
-    int potVelocity = analogRead(POT_VELOCITY);
-    velocity = map(potVelocity, 0, 1023, 1, 127);
+  int potVelocity = analogRead(POT_VELOCITY);
+  velocity = map(potVelocity, 0, 1023, 1, 127);
 }
 
 byte getGrooveOffset() {
-    byte grooveOffset = 0;
+  byte grooveOffset = 0;
 
-    if (seqPos % 2 == 1) {
-        grooveOffset = groove*halfStepLen;
-    }
-    return grooveOffset;
+  if (seqPos % 2 == 1) {
+    grooveOffset = groove * halfStepLen;
+  }
+  return grooveOffset;
 }
 
 void processLEDs() {
-    bool binState[stepCount];
-    memset(binState, 0, stepCount*sizeof(bool));
+  bool binState[stepCount];
+  memset(binState, 0, stepCount * sizeof(bool));
 
-    bool isHalfStep = (currentTick % stepLen) <= halfStepLen;
-    byte currentPlayedBar = seqPos / stepCount;
+  bool isHalfStep = (currentTick % stepLen) <= halfStepLen;
+  byte currentPlayedBar = seqPos / stepCount;
 
-    if (currentMode == selectBars) {
-        for (byte i = 0; i < 8; i++) {
-            binState[i] = (i < currentBarCount);
-            if (i == currentPlayedBar) {
-                binState[i] = binState[i] && isHalfStep;
-            }
+  if (currentMode == selectBars) {
+    for (byte i = 0; i < 8; i++) {
+      binState[i] = (i < currentBarCount);
+      if (i == currentPlayedBar) {
+        binState[i] = binState[i] && isHalfStep;
+      }
+    }
+    byte bc = currentBar + 8;
+    for (byte i = 8; i < 16; i++) {
+      binState[i] = i == bc;
+    }
+  }
+
+  if (currentMode == muteChannel) {
+    for (byte i = 0; i < maxChanCount; i++) {
+      binState[i] = !isMuted[i];
+    }
+  }
+
+  if (currentMode == sequencer) {
+    if (isPerform) {
+      for (byte i = 0; i < stepCount; i++) {
+        binState[i] = midiOut.getLiveState(i);
+      }
+    } else {
+      //fill with sequencer state
+      int stepOffset = getStepOffset();
+      for (byte i = 0; i < stepCount; i++) {
+        binState[i] = sequence[selectedChannel][i + stepOffset] > 0;
+      }
+      //blink !
+      //blink only the current bar
+      if (isPlaying) {
+        byte stepPos = seqPos % stepCount;
+        if (isHalfStep && currentPlayedBar == currentBar) {
+          binState[stepPos] = !binState[stepPos];
         }
-        byte bc = currentBar + 8;
-        for (byte i = 8; i < 16; i++) {
-            binState[i] = i == bc;
+      }
+    }
+  }
+
+  if (currentMode == selectChannel) {
+    binState[selectedChannel] = true;
+  }
+
+  if (currentMode == enableSteps) {
+    for (byte i = 0; i < maxChanCount; i++) {
+      binState[i] = stepState[i];
+    }
+  }
+
+  if (currentTick % stepLen == halfStepLen) {
+    digitalWrite(SYNC_OUT, LOW);
+  }
+
+  if (currentTick % stepLen == 0) {
+    digitalWrite(SYNC_OUT, HIGH);
+  }
+
+  if (isPlaying) {
+    for (byte c = 0; c < maxChanCount; c++) {
+      byte noteValue = sequence[c][seqPos];
+      if (noteValue > 0 && !isMuted[c]) {
+        if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel || isPerform) {
+          binState[c] = (currentTick % stepLen) > halfStepLen ? binState[c] : !binState[c];
         }
+      }
     }
+  }
 
-    if (currentMode == muteChannel) {
-        for (byte i = 0; i < maxChanCount; i++) {
-            binState[i] = !isMuted[i];
-        }
-    }
 
-    if (currentMode == sequencer) {
-        if (isPerform) {
-            for (byte i = 0; i < stepCount; i++) {
-                binState[i] = midiOut.getLiveState(i);
-            }
-        } else {
-            //fill with sequencer state
-            int stepOffset = getStepOffset();
-            for (byte i = 0; i < stepCount; i++) {
-                binState[i] = sequence[selectedChannel][i + stepOffset] > 0;
-            }
-            //blink !
-            //blink only the current bar
-            if (isPlaying) {
-                byte stepPos = seqPos % stepCount;
-                if (isHalfStep && currentPlayedBar == currentBar) {
-                    binState[stepPos] = !binState[stepPos];
-                }
-            }
-        }
-        
-    }
-
-    if (currentMode == selectChannel) {
-        binState[selectedChannel] = true;
-    }
-
-    if (currentMode == enableSteps) {
-        for (byte i = 0; i < maxChanCount; i++) {
-            binState[i] = stepState[i];
-        }
-    }
-
-    if (currentTick % stepLen == halfStepLen) {
-      digitalWrite(SYNC_OUT, LOW);
-    }
-
-    if (currentTick % stepLen == 0) {
-      digitalWrite(SYNC_OUT, HIGH);
-    }
-
-    if (isPlaying) {
-        for (byte c = 0; c < maxChanCount; c++) {
-            byte noteValue = sequence[c][seqPos];
-            if (noteValue > 0 && !isMuted[c]) {
-                if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel || isPerform) {
-                    binState[c] = (currentTick % stepLen) > halfStepLen ? binState[c] : !binState[c];
-                }
-            }
-        }
-    }
-    
-    
-    ledGroup.process(binState);
+  ledGroup.process(binState);
 }
 
 void onTick(uint32_t tick) {
 
-    unsigned long newTime = millis();
-    unsigned long delta = newTime - lifeTime;
-    lifeTime = newTime;
+  unsigned long newTime = millis();
+  unsigned long delta = newTime - lifeTime;
+  lifeTime = newTime;
 
-    currentTick = tick;
+  currentTick = tick;
 
-    processLEDs();
+  processLEDs();
 
-    if (currentTick % stepLen == 0) {
+  if (currentTick % stepLen == 0) {
 
-        bool isOddStep = (seqPos % 2 == 1);
-        double stepDuration = delta * stepLen;
+    bool isOddStep = (seqPos % 2 == 1);
+    double stepDuration = delta * stepLen;
 
-        unsigned long offset = isOddStep ? (stepDuration/2.0) * groove : 0;
+    unsigned long offset = isOddStep ? (stepDuration / 2.0) * groove : 0;
 
-        for (byte c = 0; c < maxChanCount; c++) {
-            byte noteValue = sequence[c][seqPos];
-            if (noteValue > 0 && !isMuted[c]) {
-                midiOut.loadNote(c, noteValue);
-            }
-        }
-
-        midiOut.setTime(millis() + offset);
+    for (byte c = 0; c < maxChanCount; c++) {
+      byte noteValue = sequence[c][seqPos];
+      if (midiOut.getLiveState(c) && isRepeat && isPerform) {
+        midiOut.loadNote(c, velocity);
+      } else if ((noteValue > 0 && !isMuted[c])) {
+        midiOut.loadNote(c, noteValue);
+      }
     }
 
-    if (currentTick % stepLen >= (stepLen-1)) {
-        midiOut.release();
-        seqPos++;
-        checkPotentiometers(); //TODO maybe use a callback for this
-        if (needRestart) {
-            needRestart = false;
-            seqPos = 0;
-        }
-    }
+    midiOut.setTime(millis() + offset);
+  }
 
-    seqPos = seqPos % (stepCount * currentBarCount);
+  if (currentTick % stepLen >= (stepLen - 1)) {
+    midiOut.release();
+    seqPos++;
+    checkPotentiometers();  //TODO maybe use a callback for this
+    if (needRestart) {
+      needRestart = false;
+      seqPos = 0;
+    }
+  }
+
+  seqPos = seqPos % (stepCount * currentBarCount);
 }
 
 void onOutputPPQNCallback(uint32_t tick) {
-    onTick(tick);
+  onTick(tick);
 }
 
 void doEraseChannel(byte c) {
-    for (byte i = 0; i < stepCount * maxBarCount; i++) {
-        sequence[c][i] = 0;
-    }
+  for (byte i = 0; i < stepCount * maxBarCount; i++) {
+    sequence[c][i] = 0;
+  }
 }
 
 void selectBarCount(byte barCount) {
-    if (barCount >= 1 && barCount <= maxBarCount) {
-        currentBarCount = barCount;
-    }
+  if (barCount >= 1 && barCount <= maxBarCount) {
+    currentBarCount = barCount;
+  }
 }
 
 void setup() {
-    delay(200);
+  delay(200);
 
-    for (int i = 0; i < stepCount; i++) {
-        switches[i] = new MuxSwitch(i);
-    }
+  for (int i = 0; i < stepCount; i++) {
+    switches[i].init(i);
+  }
 
-    memset(stepState, 1, maxChanCount*sizeof(bool));
+  memset(stepState, 1, maxChanCount * sizeof(bool));
 
-    pinMode(SYNC_OUT, OUTPUT);
+  pinMode(SYNC_OUT, OUTPUT);
 
-    uClock.setOutputPPQN(uClock.PPQN_24);
-    uClock.setOnOutputPPQN(onOutputPPQNCallback);
+  uClock.setOutputPPQN(uClock.PPQN_24);
+  uClock.setOnOutputPPQN(onOutputPPQNCallback);
 
-    MIDI.setHandleStart(handleStart);
-    MIDI.setHandleStop(handleStop);
-    MIDI.setHandleClock(handleClock);
+  MIDI.setHandleStart(handleStart);
+  MIDI.setHandleStop(handleStop);
+  MIDI.setHandleClock(handleClock);
 
-    MIDI.begin(MIDI_CHANNEL_OMNI);
+  MIDI.begin(MIDI_CHANNEL_OMNI);
 
-    checkPotentiometers();
+  checkPotentiometers();
 
-    uClock.init();
-    uClock.setTempo(120);
-    uClock.start();
+  uClock.init();
+  uClock.setTempo(120);
+  uClock.start();
 }
 
 void handleStart() {
-    if (!isPlaying) {
-        isMidiSynced = true;
-        midiTick = 0;
-        setIsPlaying(true);
-    }
+  if (!isPlaying) {
+    isMidiSynced = true;
+    midiTick = 0;
+    setIsPlaying(true);
+  }
 }
 
 void handleStop() {
-    setIsPlaying(false);
-    isMidiSynced = false;
+  setIsPlaying(false);
+  isMidiSynced = false;
 }
 
 void handleClock() {
-    if (isMidiSynced && isPlaying) {
-        onTick(midiTick);
-        midiTick = midiTick + 1;
-    }
+  if (isMidiSynced && isPlaying) {
+    onTick(midiTick);
+    midiTick = midiTick + 1;
+  }
 }
 
 void setIsPlaying(bool state) {
-    isPlaying = state;
-    if (!isPlaying) {
-        uClock.stop();
-        midiOut.release();
-        seqPos = 0;
-        currentTick = 0;
-        processLEDs();
-    } else {
-        if (!isMidiSynced) {
-            uClock.start();
-        }
+  isPlaying = state;
+  if (!isPlaying) {
+    uClock.stop();
+    midiOut.release();
+    seqPos = 0;
+    currentTick = 0;
+    processLEDs();
+  } else {
+    if (!isMidiSynced) {
+      uClock.start();
     }
+  }
 }
 
 void restartBars() {
-    needRestart = true;
+  needRestart = true;
 }
 
 void playButtonCallback() {
-    if (playButton.debounce()) {
-        if (playButton.getState()) {
-            if (shiftButton.getState() && isPlaying) {
-                restartBars();
-            } else {
-                setIsPlaying(!isPlaying);
-            }
-        }
+  if (playButton.debounce()) {
+    if (playButton.getState()) {
+      if (shiftButton.getState() && isPlaying) {
+        restartBars();
+      } else {
+        setIsPlaying(!isPlaying);
+      }
     }
+  }
 }
 
 TimedTask playButtonCheck(20, playButtonCallback);
 
 void loop() {
 
-    uClock.run();
+  if (lifeTime == 0) {
+    lifeTime = millis();
+    return;
+  }
 
-    bool needsLedUpdate = false;
+  uClock.run();
 
-    if (selectButton.debounce() || shiftButton.debounce() || barsButton.debounce() || stepsButton.debounce()) {
-        needsLedUpdate = !isPlaying;
-    }
+  bool needsLedUpdate = false;
 
-    bool selectButtonIsDown = selectButton.getState();
-    bool shiftButtonIsDown = shiftButton.getState();
-    bool barsButtonIsDown = barsButton.getState();
-    bool stepsButtonIsDown = stepsButton.getState();
+  if (selectButton.debounce() || shiftButton.debounce() || barsButton.debounce() || stepsButton.debounce()) {
+    needsLedUpdate = !isPlaying;
+  }
 
-    playButtonCheck.update();
+  bool selectButtonIsDown = selectButton.getState();
+  bool shiftButtonIsDown = shiftButton.getState();
+  bool barsButtonIsDown = barsButton.getState();
+  bool stepsButtonIsDown = stepsButton.getState();
 
-    if (shiftButtonIsDown && barsButtonIsDown) {
-        currentMode = eraseChannel;
-    } else if (shiftButtonIsDown && selectButtonIsDown) {
-        currentMode = muteChannel;
-    } else if (barsButtonIsDown) {
-        currentMode = selectBars;
-    } else if (selectButtonIsDown) {
-        currentMode = selectChannel;
-    } else if (stepsButtonIsDown) {
-        currentMode = enableSteps;
-    } else {
-        currentMode = sequencer;
-    }
+  playButtonCheck.update();
 
-    for (byte i = 0; i < stepCount; i++) {
-        if (switches[i]->debounce()) {
-            if (switches[i]->getState()) {
-                if (currentMode == selectBars) {
-                    if (i < 8) {
-                        selectBarCount(i + 1);
-                    } else {
-                        currentBar = i - 8;
-                    }
-                } else if (currentMode == eraseChannel) {
-                    doEraseChannel(i);
-                } else if (currentMode == muteChannel) {
-                    isMuted[i] = !isMuted[i];
-                } else if (currentMode == enableSteps) {
-                    stepState[i] = !stepState[i];
-                } else if (currentMode == selectChannel) {
-                    selectedChannel = i;
-                } else if (shiftButtonIsDown) { //Select new modes
-                    if (i == 0) {
-                        isPerform = !isPerform;
-                    }
-                } else if (isPerform) {
-                    midiOut.performNoteNow(i);
-                } else {
-                    int step = i + getStepOffset();
-                    byte stepValue = sequence[selectedChannel][step];
-                    if (stepValue > 0) {
-                        sequence[selectedChannel][step] = 0;
-                    } else {
-                        sequence[selectedChannel][step] = velocity;
-                    }
-                }
-            } else {
-                if (isPerform) {
-                    midiOut.releaseNoteNow(i);
-                } 
+  if (shiftButtonIsDown && barsButtonIsDown) {
+    currentMode = eraseChannel;
+  } else if (shiftButtonIsDown && selectButtonIsDown) {
+    currentMode = muteChannel;
+  } else if (barsButtonIsDown) {
+    currentMode = selectBars;
+  } else if (selectButtonIsDown) {
+    currentMode = selectChannel;
+  } else if (stepsButtonIsDown) {
+    currentMode = enableSteps;
+  } else {
+    currentMode = sequencer;
+  }
+
+  for (byte i = 0; i < stepCount; i++) {
+    if (switches[i].debounce()) {
+      if (switches[i].getState()) {
+        if (currentMode == selectBars) {
+          if (i < 8) {
+            selectBarCount(i + 1);
+          } else {
+            currentBar = i - 8;
+          }
+        } else if (currentMode == eraseChannel) {
+          doEraseChannel(i);
+        } else if (currentMode == muteChannel) {
+          isMuted[i] = !isMuted[i];
+        } else if (currentMode == enableSteps) {
+          stepState[i] = !stepState[i];
+        } else if (currentMode == selectChannel) {
+          selectedChannel = i;
+        } else if (shiftButtonIsDown) {  //Select new modes
+          if (i == 0) {
+            isPerform = !isPerform;
+            if (!isPerform) {
+                midiOut.releaseAllLiveNotes(isRepeat);
             }
-
-            needsLedUpdate = !isPlaying;
+          } else if (i == 1) {
+            isRepeat = !isRepeat;
+          }
+        } else if (isPerform) {
+          midiOut.performNoteNow(i, velocity, isRepeat);
+        } else {
+          int step = i + getStepOffset();
+          byte stepValue = sequence[selectedChannel][step];
+          if (stepValue > 0) {
+            sequence[selectedChannel][step] = 0;
+          } else {
+            sequence[selectedChannel][step] = velocity;
+          }
         }
-    }
+      } else {
+        if (isPerform) {
+          midiOut.releaseNoteNow(i, isRepeat);
+        }
+      }
 
-    if (needsLedUpdate) {
-        processLEDs();
+      needsLedUpdate = !isPlaying;
     }
-    midiOut.sendOutput(millis());
-    MIDI.read();
+  }
+
+  if (needsLedUpdate) {
+    processLEDs();
+  }
+  midiOut.sendOutput(millis());
+  MIDI.read();
 }

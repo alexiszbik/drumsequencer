@@ -6,7 +6,12 @@ Mux mux(Pin(9, INPUT, PinType::Digital), Pinset(2, 3, 4, 5));
 
 class MuxSwitch {
 public:
-  MuxSwitch(byte pin, bool inverted = false) : pin(pin), inverted(inverted) {
+  MuxSwitch() {
+  }
+
+  void init(byte pin, bool inverted = false) {
+    this->pin = pin;
+    this->inverted = inverted;
   }
 
   bool debounce() {
