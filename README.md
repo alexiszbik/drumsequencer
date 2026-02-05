@@ -1,4 +1,4 @@
-Arduino based MIDI drum sequencer
+## Arduino based MIDI drum sequencer
 
 Schematic :
 
@@ -29,3 +29,5 @@ VELOCITY knob => set the velocity value of the next enabled step
 SHIFT + DRUM BUTTON 1 => switch between sequencer mode & perform mode
 
 SHIFT + DRUM BUTTON 2 => enable/disable note repeater for perform mode
+
+This is still a work in progress project ! More features are under development and a better documentation will follow.
