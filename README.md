@@ -1,5 +1,9 @@
 Arduino based MIDI drum sequencer
 
+Schematic :
+
+![DrumSequencer schematic](schematic.png)
+
 SWITCH A => select voice
 
 SWITCH B => shift
