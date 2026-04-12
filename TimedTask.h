@@ -14,10 +14,9 @@ public:
         lastRun = 0;
     }
 
-    void update() {
-        unsigned long now = millis();
-        if (now - lastRun >= interval) {
-            lastRun = now;
+    void update(unsigned long& currentTime) {
+        if (currentTime - lastRun >= interval) {
+            lastRun = currentTime;
             if (callback) callback();
         }
     }

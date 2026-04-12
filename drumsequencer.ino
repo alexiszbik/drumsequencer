@@ -27,7 +27,7 @@ byte sequence[maxChanCount][stepCount * maxBarCount];
 bool isMuted[maxChanCount];
 bool stepState[maxChanCount];
 
-bool isPlaying = true;
+bool isPlaying = false;
 float groove = 0.f;
 byte velocity = 0;
 byte selectedChannel = 0;
@@ -66,22 +66,11 @@ Mode currentMode = sequencer;
 
 bool isPerform = false;
 bool isRepeat = false;
+bool needsLedUpdate = false;
+bool shiftButtonIsDown = false;
 
 int getStepOffset() {
   return (currentBar * stepCount);
-}
-
-void checkPotentiometers() {
-  int potTempo = analogRead(POT_TEMPO);
-  int tempo = map(potTempo, 0, 1023, 40, 230);
-
-  uClock.setTempo(tempo);
-
-  float potGroove = (float)analogRead(POT_GROOVE);
-  groove = potGroove / 1023.f;
-
-  int potVelocity = analogRead(POT_VELOCITY);
-  velocity = map(potVelocity, 0, 1023, 1, 127);
 }
 
 byte getGrooveOffset() {
@@ -170,13 +159,12 @@ void processLEDs() {
     }
   }
 
-
   ledGroup.process(binState);
 }
 
 void onTick(uint32_t tick) {
 
-  unsigned long newTime = millis();
+  const unsigned long newTime = millis();
   unsigned long delta = newTime - lifeTime;
   lifeTime = newTime;
 
@@ -200,13 +188,12 @@ void onTick(uint32_t tick) {
       }
     }
 
-    midiOut.setTime(millis() + offset);
+    midiOut.setTime(newTime + offset);
   }
 
   if (currentTick % stepLen >= (stepLen - 1)) {
     midiOut.release();
     seqPos++;
-    checkPotentiometers();  //TODO maybe use a callback for this
     if (needRestart) {
       needRestart = false;
       seqPos = 0;
@@ -252,11 +239,11 @@ void setup() {
 
   MIDI.begin(MIDI_CHANNEL_OMNI);
 
-  checkPotentiometers();
-
   uClock.init();
   uClock.setTempo(120);
   uClock.start();
+
+  checkPotentiometersCallback();
 }
 
 void handleStart() {
@@ -310,29 +297,15 @@ void playButtonCallback() {
   }
 }
 
-TimedTask playButtonCheck(20, playButtonCallback);
-
-void loop() {
-
-  if (lifeTime == 0) {
-    lifeTime = millis();
-    return;
-  }
-
-  uClock.run();
-
-  bool needsLedUpdate = false;
-
+void otherButtonCallback() {
   if (selectButton.debounce() || shiftButton.debounce() || barsButton.debounce() || stepsButton.debounce()) {
     needsLedUpdate = !isPlaying;
   }
 
   bool selectButtonIsDown = selectButton.getState();
-  bool shiftButtonIsDown = shiftButton.getState();
+  shiftButtonIsDown = shiftButton.getState();
   bool barsButtonIsDown = barsButton.getState();
   bool stepsButtonIsDown = stepsButton.getState();
-
-  playButtonCheck.update();
 
   if (shiftButtonIsDown && barsButtonIsDown) {
     currentMode = eraseChannel;
@@ -347,6 +320,54 @@ void loop() {
   } else {
     currentMode = sequencer;
   }
+}
+
+void checkPotentiometersCallback() {
+  static byte currentPot = 0;
+  switch (currentPot) {
+    case 0:
+      {
+        int potTempo = analogRead(POT_TEMPO);
+        int tempo = map(potTempo, 0, 1023, 40, 230);
+        uClock.setTempo(tempo);
+        break;
+      }
+    case 1:
+      {
+        int potGroove = analogRead(POT_GROOVE);
+        groove = potGroove / 1023.0f;
+        break;
+      }
+    case 2:
+      {
+        int potVelocity = analogRead(POT_VELOCITY);
+        velocity = map(potVelocity, 0, 1023, 1, 127);
+        break;
+      }
+  }
+
+  currentPot++;
+  if (currentPot >= 3) currentPot = 0;
+}
+
+TimedTask playButtonCheck(30, playButtonCallback);
+TimedTask otherButtonCheck(12, otherButtonCallback);
+TimedTask potentiometerCheck(20, checkPotentiometersCallback);
+
+void loop() {
+
+  if (lifeTime == 0) {
+    lifeTime = millis();
+    return;
+  }
+
+  unsigned long time = millis();
+
+  uClock.run();
+
+  playButtonCheck.update(time);
+  otherButtonCheck.update(time);
+  potentiometerCheck.update(time);
 
   for (byte i = 0; i < stepCount; i++) {
     if (switches[i].debounce()) {
@@ -369,7 +390,7 @@ void loop() {
           if (i == 0) {
             isPerform = !isPerform;
             if (!isPerform) {
-                midiOut.releaseAllLiveNotes(isRepeat);
+              midiOut.releaseAllLiveNotes(isRepeat);
             }
           } else if (i == 1) {
             isRepeat = !isRepeat;
@@ -398,6 +419,6 @@ void loop() {
   if (needsLedUpdate) {
     processLEDs();
   }
-  midiOut.sendOutput(millis());
+  midiOut.sendOutput(time);
   MIDI.read();
 }
