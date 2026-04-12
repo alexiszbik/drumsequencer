@@ -28,7 +28,7 @@ bool isMuted[maxChanCount];
 bool stepState[maxChanCount];
 
 bool isPlaying = false;
-float groove = 0.f;
+byte groove = 0;
 byte velocity = 0;
 byte selectedChannel = 0;
 uint32_t currentTick = 0;
@@ -73,18 +73,11 @@ int getStepOffset() {
   return (currentBar * stepCount);
 }
 
-byte getGrooveOffset() {
-  byte grooveOffset = 0;
-
-  if (seqPos % 2 == 1) {
-    grooveOffset = groove * halfStepLen;
-  }
-  return grooveOffset;
-}
-
 void processLEDs() {
   bool binState[stepCount];
-  memset(binState, 0, stepCount * sizeof(bool));
+  for (byte i = 0; i < stepCount; i++) {
+    binState[i] = 0;
+  }
 
   bool isHalfStep = (currentTick % stepLen) <= halfStepLen;
   byte currentPlayedBar = seqPos / stepCount;
@@ -172,12 +165,14 @@ void onTick(uint32_t tick) {
 
   processLEDs();
 
-  if (currentTick % stepLen == 0) {
+  byte tickModStep = currentTick % stepLen;
 
-    bool isOddStep = (seqPos % 2 == 1);
-    double stepDuration = delta * stepLen;
+  if (tickModStep == 0) {
 
-    unsigned long offset = isOddStep ? (stepDuration / 2.0) * groove : 0;
+    bool isOddStep = (seqPos & 1);
+    unsigned long stepDuration = delta * stepLen;
+
+    unsigned long offset = isOddStep ? ((stepDuration >> 1) * groove) >> 8 : 0;  // idem à (stepDuration / 2) * (groove / 256)
 
     for (byte c = 0; c < maxChanCount; c++) {
       byte noteValue = sequence[c][seqPos];
@@ -191,7 +186,7 @@ void onTick(uint32_t tick) {
     midiOut.setTime(newTime + offset);
   }
 
-  if (currentTick % stepLen >= (stepLen - 1)) {
+  if (tickModStep >= (stepLen - 1)) {
     midiOut.release();
     seqPos++;
     if (needRestart) {
@@ -335,7 +330,7 @@ void checkPotentiometersCallback() {
     case 1:
       {
         int potGroove = analogRead(POT_GROOVE);
-        groove = potGroove / 1023.0f;
+        groove = potGroove >> 2;  //division par 4
         break;
       }
     case 2:
@@ -418,6 +413,7 @@ void loop() {
 
   if (needsLedUpdate) {
     processLEDs();
+    needsLedUpdate = false;
   }
   midiOut.sendOutput(time);
   MIDI.read();
