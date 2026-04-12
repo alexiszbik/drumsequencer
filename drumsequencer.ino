@@ -79,7 +79,8 @@ void processLEDs() {
     binState[i] = 0;
   }
 
-  bool isHalfStep = (currentTick % stepLen) <= halfStepLen;
+  byte tickModStep = currentTick % stepLen;
+  bool isHalfStep = tickModStep <= halfStepLen;
   byte currentPlayedBar = seqPos / stepCount;
 
   if (currentMode == selectBars) {
@@ -133,11 +134,11 @@ void processLEDs() {
     }
   }
 
-  if (currentTick % stepLen == halfStepLen) {
+  if (tickModStep == halfStepLen) {
     digitalWrite(SYNC_OUT, LOW);
   }
 
-  if (currentTick % stepLen == 0) {
+  if (tickModStep == 0) {
     digitalWrite(SYNC_OUT, HIGH);
   }
 
@@ -146,7 +147,7 @@ void processLEDs() {
       byte noteValue = sequence[c][seqPos];
       if (noteValue > 0 && !isMuted[c]) {
         if (currentMode == selectChannel || currentMode == muteChannel || currentMode == eraseChannel || isPerform) {
-          binState[c] = (currentTick % stepLen) > halfStepLen ? binState[c] : !binState[c];
+          binState[c] = tickModStep > halfStepLen ? binState[c] : !binState[c];
         }
       }
     }
