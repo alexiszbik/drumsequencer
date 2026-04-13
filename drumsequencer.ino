@@ -444,7 +444,7 @@ void inputCheckCallback() {
   if (checkIndex >= 21) checkIndex = 0;
 }
 
-TimedTask inputCheck(2, inputCheckCallback);
+TimedTask inputCheck(1, inputCheckCallback);
 
 void loop() {
 
