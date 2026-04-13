@@ -38,6 +38,8 @@ byte seqPos = 0;
 byte currentBar = 0;       // (0 -> 7)
 byte currentBarCount = 1;  // (1 -> 8)
 bool needRestart = false;
+bool binState[stepCount];
+byte tickModStep = 0;
 
 unsigned long lifeTime = 0;
 unsigned long currentTime = 0;
@@ -75,12 +77,12 @@ int getStepOffset() {
 }
 
 void processLEDs() {
-  bool binState[stepCount];
+  
   for (byte i = 0; i < stepCount; i++) {
     binState[i] = 0;
   }
 
-  byte tickModStep = currentTick % stepLen;
+  
   bool isHalfStep = tickModStep <= halfStepLen;
   byte currentPlayedBar = seqPos / stepCount;
 
@@ -164,7 +166,7 @@ void onTick(uint32_t tick) {
 
   currentTick = tick;
 
-  byte tickModStep = currentTick % stepLen;
+  tickModStep = currentTick % stepLen;
 
   if ((tickModStep & 1) == 0) {
     needsLedUpdate = true;
