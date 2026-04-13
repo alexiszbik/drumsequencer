@@ -36,6 +36,9 @@ public:
     //binState should be size of 16 !!!
     void process(bool* binState) {
         uint16_t binValue = boolArrayToUint16(binState);
+        if (binValue == lastValue) return;
+
+        lastValue = binValue;
         sendData(binValue);
     }
 
@@ -45,6 +48,7 @@ public:
 
 private:
     byte latchPin, clockPin, dataPin;
+    uint16_t lastValue = 0xFFFF;
 };
 
 #endif //LEDGROUP_H

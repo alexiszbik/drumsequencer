@@ -76,5 +76,4 @@ public:
     bool getLiveState(byte c) {
         return liveState[c];
     }
-    
 };
