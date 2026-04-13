@@ -40,6 +40,7 @@ byte currentBarCount = 1;  // (1 -> 8)
 bool needRestart = false;
 
 unsigned long lifeTime = 0;
+unsigned long currentTime = 0;
 
 MuxSwitch switches[stepCount];
 
@@ -158,15 +159,16 @@ void processLEDs() {
 
 void onTick(uint32_t tick) {
 
-  const unsigned long newTime = millis();
-  unsigned long delta = newTime - lifeTime;
-  lifeTime = newTime;
+  unsigned long delta = currentTime - lifeTime;
+  lifeTime = currentTime;
 
   currentTick = tick;
 
-  processLEDs();
-
   byte tickModStep = currentTick % stepLen;
+
+  if ((tickModStep & 1) == 0) {
+    needsLedUpdate = true;
+  }
 
   if (tickModStep == 0) {
 
@@ -184,7 +186,7 @@ void onTick(uint32_t tick) {
       }
     }
 
-    midiOut.setTime(newTime + offset);
+    midiOut.setTime(currentTime + offset);
   }
 
   if (tickModStep >= (stepLen - 1)) {
@@ -236,8 +238,6 @@ void setup() {
   MIDI.begin(MIDI_CHANNEL_OMNI);
 
   uClock.init();
-  uClock.setTempo(120);
-  uClock.start();
 
   checkPotentiometersCallback();
 }
@@ -269,7 +269,7 @@ void setIsPlaying(bool state) {
     midiOut.release();
     seqPos = 0;
     currentTick = 0;
-    processLEDs();
+    needsLedUpdate = true;
   } else {
     if (!isMidiSynced) {
       uClock.start();
@@ -279,6 +279,35 @@ void setIsPlaying(bool state) {
 
 void restartBars() {
   needRestart = true;
+}
+
+
+void checkPotentiometersCallback() {
+  static byte currentPot = 0;
+  switch (currentPot) {
+    case 0:
+      {
+        int potTempo = analogRead(POT_TEMPO);
+        int tempo = map(potTempo, 0, 1023, 40, 230);
+        uClock.setTempo(tempo);
+        break;
+      }
+    case 1:
+      {
+        int potGroove = analogRead(POT_GROOVE);
+        groove = potGroove >> 2;  //division par 4
+        break;
+      }
+    case 2:
+      {
+        int potVelocity = analogRead(POT_VELOCITY);
+        velocity = map(potVelocity, 0, 1023, 1, 127);
+        break;
+      }
+  }
+
+  currentPot++;
+  if (currentPot >= 3) currentPot = 0;
 }
 
 void playButtonCallback() {
@@ -318,37 +347,102 @@ void otherButtonCallback() {
   }
 }
 
-void checkPotentiometersCallback() {
-  static byte currentPot = 0;
-  switch (currentPot) {
-    case 0:
-      {
-        int potTempo = analogRead(POT_TEMPO);
-        int tempo = map(potTempo, 0, 1023, 40, 230);
-        uClock.setTempo(tempo);
-        break;
+void drumButtonCallback() {
+
+  static byte i = 0;
+  if (switches[i].debounce()) {
+    if (switches[i].getState()) {
+      if (currentMode == selectBars) {
+        if (i < 8) {
+          selectBarCount(i + 1);
+        } else {
+          currentBar = i - 8;
+        }
+      } else if (currentMode == eraseChannel) {
+        doEraseChannel(i);
+      } else if (currentMode == muteChannel) {
+        isMuted[i] = !isMuted[i];
+      } else if (currentMode == enableSteps) {
+        stepState[i] = !stepState[i];
+      } else if (currentMode == selectChannel) {
+        selectedChannel = i;
+      } else if (shiftButtonIsDown) {  //Select new modes
+        if (i == 0) {
+          isPerform = !isPerform;
+          if (!isPerform) {
+            midiOut.releaseAllLiveNotes(isRepeat);
+          }
+        } else if (i == 1) {
+          isRepeat = !isRepeat;
+        }
+      } else if (isPerform) {
+        midiOut.performNoteNow(i, velocity, isRepeat);
+      } else {
+        int step = i + getStepOffset();
+        byte &stepValue = sequence[selectedChannel][step];
+        stepValue = (stepValue > 0) ? 0 : velocity;
       }
-    case 1:
-      {
-        int potGroove = analogRead(POT_GROOVE);
-        groove = potGroove >> 2;  //division par 4
-        break;
+    } else {
+      if (isPerform) {
+        midiOut.releaseNoteNow(i, isRepeat);
       }
-    case 2:
-      {
-        int potVelocity = analogRead(POT_VELOCITY);
-        velocity = map(potVelocity, 0, 1023, 1, 127);
-        break;
-      }
+    }
+    needsLedUpdate = !isPlaying;
   }
 
-  currentPot++;
-  if (currentPot >= 3) currentPot = 0;
+  i++;
+  if (i >= stepCount) i = 0;
 }
 
-TimedTask playButtonCheck(30, playButtonCallback);
-TimedTask otherButtonCheck(12, otherButtonCallback);
-TimedTask potentiometerCheck(20, checkPotentiometersCallback);
+void checkLEDs() {
+  if (needsLedUpdate) {
+    processLEDs();
+    needsLedUpdate = false;
+  }
+}
+
+void inputCheckCallback() {
+  static byte checkIndex = 0;
+
+  switch (checkIndex) {
+
+    case 0: playButtonCallback(); break;
+
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+    case 8:
+      drumButtonCallback();
+      break;
+
+    case 9: otherButtonCallback(); break;
+
+    case 10: checkLEDs(); break;
+
+    case 11:
+    case 12:
+    case 13:
+    case 14:
+    case 15:
+    case 16:
+    case 17:
+    case 18:
+      drumButtonCallback();
+      break;
+
+    case 19: checkPotentiometersCallback(); break;
+    case 20: checkLEDs(); break;
+  }
+
+  checkIndex++;
+  if (checkIndex >= 21) checkIndex = 0;
+}
+
+TimedTask inputCheck(2, inputCheckCallback);
 
 void loop() {
 
@@ -357,65 +451,14 @@ void loop() {
     return;
   }
 
-  unsigned long time = millis();
+  currentTime = millis();
 
-  uClock.run();
-
-  playButtonCheck.update(time);
-  otherButtonCheck.update(time);
-  potentiometerCheck.update(time);
-
-  for (byte i = 0; i < stepCount; i++) {
-    if (switches[i].debounce()) {
-      if (switches[i].getState()) {
-        if (currentMode == selectBars) {
-          if (i < 8) {
-            selectBarCount(i + 1);
-          } else {
-            currentBar = i - 8;
-          }
-        } else if (currentMode == eraseChannel) {
-          doEraseChannel(i);
-        } else if (currentMode == muteChannel) {
-          isMuted[i] = !isMuted[i];
-        } else if (currentMode == enableSteps) {
-          stepState[i] = !stepState[i];
-        } else if (currentMode == selectChannel) {
-          selectedChannel = i;
-        } else if (shiftButtonIsDown) {  //Select new modes
-          if (i == 0) {
-            isPerform = !isPerform;
-            if (!isPerform) {
-              midiOut.releaseAllLiveNotes(isRepeat);
-            }
-          } else if (i == 1) {
-            isRepeat = !isRepeat;
-          }
-        } else if (isPerform) {
-          midiOut.performNoteNow(i, velocity, isRepeat);
-        } else {
-          int step = i + getStepOffset();
-          byte stepValue = sequence[selectedChannel][step];
-          if (stepValue > 0) {
-            sequence[selectedChannel][step] = 0;
-          } else {
-            sequence[selectedChannel][step] = velocity;
-          }
-        }
-      } else {
-        if (isPerform) {
-          midiOut.releaseNoteNow(i, isRepeat);
-        }
-      }
-
-      needsLedUpdate = !isPlaying;
-    }
+  if (!isMidiSynced) {
+    uClock.run();
   }
 
-  if (needsLedUpdate) {
-    processLEDs();
-    needsLedUpdate = false;
-  }
-  midiOut.sendOutput(time);
+  inputCheck.update(currentTime);
+
+  midiOut.sendOutput(currentTime);
   MIDI.read();
 }
