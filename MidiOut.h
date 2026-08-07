@@ -3,7 +3,7 @@
 #include "Const.h"
 
 #define MIDI_MIN 36
-#define MIDI_CHANNEL 10
+#define MIDI_CHANNEL 4
 
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI);
 
