@@ -77,12 +77,12 @@ int getStepOffset() {
 }
 
 void processLEDs() {
-  
+
   for (byte i = 0; i < stepCount; i++) {
     binState[i] = 0;
   }
 
-  
+
   bool isHalfStep = tickModStep <= halfStepLen;
   byte currentPlayedBar = seqPos / stepCount;
 
@@ -226,9 +226,13 @@ void setup() {
     switches[i].init(i);
   }
 
-  memset(stepState, 1, maxChanCount * sizeof(bool));
+  for (byte i = 0; i < maxChanCount; i++) {
+    stepState[i] = true;
+  }
 
   pinMode(SYNC_OUT, OUTPUT);
+
+  midiOut.begin();
 
   uClock.setOutputPPQN(uClock.PPQN_24);
   uClock.setOnOutputPPQN(onOutputPPQNCallback);
@@ -454,7 +458,7 @@ void loop() {
   }
 
   currentTime = millis();
-
+  
   if (!isMidiSynced) {
     uClock.run();
   }

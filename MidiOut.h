@@ -20,8 +20,13 @@ private:
 
 public:
     MidiOut() {
+        for (byte i = 0; i < maxChanCount; i++) {
+            liveState[i] = false;
+        }
+    }
+
+    void begin() {
         Serial1.begin(31250);
-        memset(liveState, 0, maxChanCount * sizeof(bool));
     }
 
     void loadNote(byte c, byte velocity) {
