@@ -16,12 +16,14 @@ private:
 
     NoteState noteState[maxChanCount];
     bool liveState[maxChanCount];
+    bool midiInState[maxChanCount];
     unsigned long time = 0;
 
 public:
     MidiOut() {
         for (byte i = 0; i < maxChanCount; i++) {
             liveState[i] = false;
+            midiInState[i] = false;
         }
     }
 
@@ -47,15 +49,18 @@ public:
         } 
     }
 
-    void sendOutput(unsigned long time) {
+    bool sendOutput(unsigned long time) {
+        bool result = false;
         if (this->time <= time) {
             for (byte c = 0; c < maxChanCount; c++) {
                 if (noteState[c].value > 0 && noteState[c].triggered == false) {
                     MIDI.sendNoteOn(MIDI_MIN + c, noteState[c].value, MIDI_CHANNEL); 
                     noteState[c].triggered = true; 
+                    result = true;
                 }
             }
         }
+        return result;
     }
 
     void performNoteNow(byte c, byte velocity, bool isRepeat) {
@@ -78,7 +83,14 @@ public:
         }
     }
 
+    void setMidiInState(byte note, bool state) {
+        int channel = note - MIDI_MIN;
+        if (channel >= 0 && channel < 16) {
+            midiInState[channel] = state;
+        }
+    }   
+
     bool getLiveState(byte c) {
-        return liveState[c];
+        return liveState[c] || midiInState[c];
     }
 };

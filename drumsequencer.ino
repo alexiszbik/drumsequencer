@@ -82,7 +82,6 @@ void processLEDs() {
     binState[i] = 0;
   }
 
-
   bool isHalfStep = tickModStep <= halfStepLen;
   byte currentPlayedBar = seqPos / stepCount;
 
@@ -240,6 +239,8 @@ void setup() {
   MIDI.setHandleStart(handleStart);
   MIDI.setHandleStop(handleStop);
   MIDI.setHandleClock(handleClock);
+  MIDI.setHandleNoteOn(midiHandleNoteOn);
+  MIDI.setHandleNoteOff(midiHandleNoteOff);
 
   MIDI.begin(MIDI_CHANNEL_OMNI);
 
@@ -266,6 +267,20 @@ void handleClock() {
     onTick(midiTick);
     midiTick = midiTick + 1;
   }
+}
+
+void midiHandleNoteOn(byte channel, byte note, byte velocity) {
+    if (channel == MIDI_CHANNEL) {
+        midiOut.setMidiInState(note, velocity > 0);
+    }
+    needsLedUpdate = true;
+}
+
+void midiHandleNoteOff(byte channel, byte note, byte velocity) {
+    if (channel == MIDI_CHANNEL) {
+        midiOut.setMidiInState(note, false);
+    }
+    needsLedUpdate = true;
 }
 
 void setIsPlaying(bool state) {
@@ -458,13 +473,14 @@ void loop() {
   }
 
   currentTime = millis();
-  
+
   if (!isMidiSynced) {
     uClock.run();
   }
 
-  inputCheck.update(currentTime);
+  while (MIDI.read()) {
+  }
 
-  midiOut.sendOutput(currentTime);
-  MIDI.read();
+  if (midiOut.sendOutput(currentTime)) return;
+  if (inputCheck.update(currentTime)) return;
 }

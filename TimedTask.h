@@ -14,11 +14,15 @@ public:
         lastRun = 0;
     }
 
-    void update(unsigned long& currentTime) {
+    bool update(unsigned long& currentTime) {
         if (currentTime - lastRun >= interval) {
             lastRun = currentTime;
             if (callback) callback();
+
+            return true;
         }
+
+        return false;
     }
 
     void setInterval(unsigned long ms) { interval = ms; }
