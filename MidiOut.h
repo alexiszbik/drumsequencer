@@ -91,6 +91,10 @@ public:
     }   
 
     bool getLiveState(byte c) {
+        return liveState[c];
+    }
+
+    bool getLEDState(byte c) {
         return liveState[c] || midiInState[c];
     }
 };

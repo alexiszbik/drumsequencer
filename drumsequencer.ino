@@ -107,7 +107,7 @@ void processLEDs() {
   if (currentMode == sequencer) {
     if (isPerform) {
       for (byte i = 0; i < stepCount; i++) {
-        binState[i] = midiOut.getLiveState(i);
+        binState[i] = midiOut.getLEDState(i);
       }
     } else {
       //fill with sequencer state
