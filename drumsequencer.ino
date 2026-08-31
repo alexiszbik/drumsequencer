@@ -6,6 +6,7 @@
 #include "Switch.h"
 #include "LEDGroup.h"
 #include "TimedTask.h"
+#include "MidiTable.h"
 
 #define SR_LATCH_PIN 8
 #define SR_CLOCK_PIN 12
@@ -236,9 +237,10 @@ void setup() {
   uClock.setOutputPPQN(uClock.PPQN_24);
   uClock.setOnOutputPPQN(onOutputPPQNCallback);
 
-  MIDI.setHandleStart(handleStart);
+  MIDI.setHandleControlChange(handleControlChange);
   MIDI.setHandleStop(handleStop);
   MIDI.setHandleClock(handleClock);
+  MIDI.setHandleStart(handleStart);
   MIDI.setHandleNoteOn(midiHandleNoteOn);
   MIDI.setHandleNoteOff(midiHandleNoteOff);
 
@@ -270,17 +272,47 @@ void handleClock() {
 }
 
 void midiHandleNoteOn(byte channel, byte note, byte velocity) {
-    if (channel == MIDI_CHANNEL) {
-        midiOut.setMidiInState(note, velocity > 0);
+  if (channel == SETTINGS_CHANNEL) {
+    if (note >= MIN_NOTE && note < (MIN_NOTE + 16)) {  // selected channel = 36 -> 51
+      selectedChannel = (note - MIN_NOTE);
     }
-    needsLedUpdate = true;
+  }
+
+  if (channel == MIDI_CHANNEL) {
+    midiOut.setMidiInState(note, velocity > 0);
+  }
+  needsLedUpdate = true;
 }
 
 void midiHandleNoteOff(byte channel, byte note, byte velocity) {
-    if (channel == MIDI_CHANNEL) {
-        midiOut.setMidiInState(note, false);
+  if (channel == MIDI_CHANNEL) {
+    midiOut.setMidiInState(note, false);
+  }
+  needsLedUpdate = true;
+}
+
+
+void handleControlChange(byte channel, byte control, byte value) {
+  if (channel == SETTINGS_CHANNEL) {
+    if (control >= MIN_NOTE && control < (MIN_NOTE + 16)) {  // selected channel = 36 -> 51
+      byte i = (control - MIN_NOTE);
+      isMuted[i] = value > 64;
+    } else if (control == MUTE_ALL) {
+      bool muteState = value > 64;
+      for (byte i = 0; i < 16; i++) {
+        isMuted[i] = muteState;
+      }
+    } else if (control == PERFORM_MODE) {
+      setPerform(value > 64);
+    } else if (control == REPEAT_MODE) {
+      isRepeat = value > 64;
+    } else if (control == CLEAR_ALL) {
+      for (byte i = 0; i < 16; i++) {
+        doEraseChannel(i);
+      }
     }
-    needsLedUpdate = true;
+  }
+  needsLedUpdate = true;
 }
 
 void setIsPlaying(bool state) {
@@ -368,6 +400,13 @@ void otherButtonCallback() {
   }
 }
 
+void setPerform(bool state) {
+  isPerform = state;
+  if (!state) {
+    midiOut.releaseAllLiveNotes(isRepeat);
+  }
+}
+
 void drumButtonCallback() {
 
   static byte i = 0;
@@ -388,12 +427,9 @@ void drumButtonCallback() {
       } else if (currentMode == selectChannel) {
         selectedChannel = i;
       } else if (shiftButtonIsDown) {  //Select new modes
-        if (i == 0) {
-          isPerform = !isPerform;
-          if (!isPerform) {
-            midiOut.releaseAllLiveNotes(isRepeat);
-          }
-        } else if (i == 1) {
+        if (i == 0) {                  // push button 0
+          setPerform(!isPerform);      //toggle perform mode
+        } else if (i == 1) {           // push button 1
           isRepeat = !isRepeat;
         }
       } else if (isPerform) {
